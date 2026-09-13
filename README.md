@@ -2,6 +2,8 @@
 
 本机运行的 Codex 异常恢复守护服务、中文监测面板和 Codex 插件。
 
+源码仓库：[3294798852/AutoCodex](https://github.com/3294798852/AutoCodex)（当前为私有仓库，需要访问权限）。
+
 **当前版本 0.3.0。首次使用请阅读 [完整中文使用说明](docs/09-user-guide.md)。** Codex 支持自动发现、启动参数指定、面板保存路径；发布包不依赖开发机安装位置。
 
 首次异常后自动发送“继续”。普通错误按连续三次同类判定，包含首次错误及两次重试；容量不足和临时限流放宽为五次、四次重试。最近三/五次需在默认 5 分钟内发生，或期间没有有效输出，才按重复故障处理。可以选择人工处理或新会话接续；新会话首轮立即失败会完全停止。
@@ -110,6 +112,7 @@ npm run package        # 生成 dist/autocodex-guard 及 Windows ZIP
 - [三次/五次判定与长期无输出设计](docs/08-recovery-policy-v2.md)
 - [使用说明](docs/09-user-guide.md)
 - [安装发现与发布设计](docs/10-installation-design.md)
+- [Git 仓库使用与维护](docs/11-git-publishing.md)
 - [项目接续记录](PROJECT_STATE.md)
 
 ## 已知边界
