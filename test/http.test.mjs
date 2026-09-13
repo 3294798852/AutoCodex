@@ -1,0 +1,131 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { createDashboardServer } from '../src/server/http.mjs';
+import { JsonlRpcClient } from '../src/adapters/rpc-client.mjs';
+import { request as rawRequest } from 'node:http';
+import { harness } from './helpers.mjs';
+
+async function fixture(t) {
+  const h = await harness(t);
+  const http = createDashboardServer(h.supervisor, { port: 0 });
+  const address = await http.listen(); t.after(() => http.close());
+  const connection = JSON.parse(readFileSync(join(h.directory, 'connection.json'), 'utf8'));
+  const request = (path, { plugin = false, ...options } = {}) => fetch(`${address.origin}${path}`, {
+    ...options, headers: { Authorization: `Bearer ${plugin ? connection.pluginToken : connection.token}`, ...options.headers },
+  });
+  return { ...h, http, address, connection, request };
+}
+
+test('loopback API enforces authentication, Origin, Host, body limit and plugin scope', async t => {
+  const h = await fixture(t);
+  assert.equal((await fetch(`${h.address.origin}/api/v1/state`)).status, 401);
+  assert.equal((await h.request('/api/v1/state', { headers: { Origin: 'https://attacker.example' } })).status, 403);
+  const hostStatus = await new Promise((resolve, reject) => {
+    const req = rawRequest(`${h.address.origin}/api/v1/state`, { headers: { Host: 'attacker.example', Authorization: `Bearer ${h.connection.token}` } }, response => { response.resume(); resolve(response.statusCode); });
+    req.on('error', reject); req.end();
+  });
+  assert.equal(hostStatus, 403);
+  assert.equal((await h.request('/api/v1/state', { plugin: true })).status, 200);
+  assert.equal((await h.request('/api/v1/tasks', { plugin: true, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
+  assert.equal((await h.request('/api/v1/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ huge: 'x'.repeat(70000) }) })).status, 413);
+  const page = await fetch(h.address.origin);
+  assert.equal(page.status, 200); assert(page.headers.get('content-security-policy').includes("script-src 'self'"));
+  const exchange = await fetch(`${h.address.origin}/api/v1/session`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: h.address.origin }, body: JSON.stringify({ token: h.connection.token }) });
+  assert.equal(exchange.status, 200); assert(exchange.headers.get('set-cookie').includes('HttpOnly; SameSite=Strict'));
+  const state = await (await h.request('/api/v1/state')).text(); assert(!state.includes(h.connection.token)); assert(!state.includes(h.connection.pluginToken));
+});
+
+test('SSE initial snapshot and mutations arrive in under one second', async t => {
+  const h = await fixture(t), abort = new AbortController();
+  t.after(() => abort.abort());
+  const response = await h.request('/api/v1/events', { signal: abort.signal });
+  assert.equal(response.headers.get('content-type'), 'text/event-stream');
+  const reader = response.body.getReader(); await reader.read();
+  const start = performance.now(); const task = await h.create();
+  let buffer = '';
+  while (!buffer.includes(task.id)) {
+    const result = await reader.read(); assert(!result.done); buffer += new TextDecoder().decode(result.value);
+  }
+  const latency = performance.now() - start;
+  assert(latency < 1000, `SSE update took ${latency} ms`);
+  await reader.cancel(); abort.abort();
+});
+
+test('MCP bridge performs real stdio handshake and scoped local checkpoint roundtrip', async t => {
+  const h = await fixture(t), task = await h.create();
+  const bridge = new JsonlRpcClient({ command: process.execPath, args: [resolve('plugins/autocodex-guard/scripts/bridge.mjs')], env: { ...process.env, AUTOCODEX_CONNECTION_FILE: h.address.connectionPath }, timeoutMs: 2000 });
+  t.after(() => bridge.close());
+  const init = await bridge.connect(); assert.equal(init.serverInfo.name, 'autocodex-guard');
+  const list = await bridge.request('tools/list', {}); assert.equal(list.tools.length, 3);
+  const status = await bridge.request('tools/call', { name: 'guard_status', arguments: { taskId: task.id } });
+  assert.equal(status.isError, false); assert(status.content[0].text.includes(task.id));
+  const checkpoint = await bridge.request('tools/call', { name: 'guard_checkpoint', arguments: { taskId: task.id, text: 'Core complete; UI verified.' } });
+  assert.equal(checkpoint.isError, false); assert.equal(h.store.records('checkpoints', task.id)[0].text, 'Core complete; UI verified.');
+  const missing = await bridge.request('tools/call', { name: 'guard_checkpoint', arguments: { text: 'ambiguous' } });
+  assert.equal(missing.isError, true);
+});
+
+test('SSE p95 over twenty ordered updates stays below one second', async t => {
+  const h = await fixture(t), task = await h.create(), abort = new AbortController();
+  const response = await h.request('/api/v1/events', { signal: abort.signal });
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let buffered = '';
+  const nextSnapshot = async () => {
+    while (true) {
+      const boundary = buffered.indexOf('\n\n');
+      if (boundary >= 0) {
+        const frame = buffered.slice(0, boundary); buffered = buffered.slice(boundary + 2);
+        const data = frame.split('\n').find(line => line.startsWith('data: '));
+        if (data) return JSON.parse(data.slice(6));
+      } else {
+        const chunk = await reader.read(); assert(!chunk.done); buffered += decoder.decode(chunk.value, { stream: true });
+      }
+    }
+  };
+  try {
+    await nextSnapshot();
+    const samples = [];
+    for (let i = 0; i < 20; i++) {
+      const marker = `[latency:${i}:]`, start = performance.now();
+      h.adapter.notify('item/agentMessage/delta', { threadId: task.threadId, turnId: task.turnId, delta: marker });
+      await h.flush();
+      while (!(await nextSnapshot()).tasks.find(item => item.id === task.id).lastOutput.includes(marker)) {}
+      samples.push(performance.now() - start);
+    }
+    const sorted = [...samples].sort((a, b) => a - b), p95 = sorted[Math.ceil(sorted.length * .95) - 1];
+    assert(p95 < 1000, `SSE p95 ${p95} ms`);
+    writeFileSync(resolve('.work/latency-report.json'), JSON.stringify({ measuredAt: new Date().toISOString(), samples: 20, p50Ms: Math.round(sorted[9]), p95Ms: Math.round(p95), maxMs: Math.round(sorted.at(-1)), scope: 'single local client; mock Codex adapter; real HTTP SSE' }, null, 2));
+  } finally { await reader.cancel(); abort.abort(); }
+});
+
+test('large multi-task SSE snapshots drain completely and keep delivering new output', { timeout: 10000 }, async t => {
+  const h = await fixture(t), abort = new AbortController();
+  t.after(() => abort.abort());
+  const tasks = [];
+  for (let i = 0; i < 10; i++) tasks.push(await h.create({ name: `Large task ${i}`, prompt: `Project ${i}: ${'detailed objective '.repeat(600)}` }));
+  const response = await h.request('/api/v1/events', { signal: abort.signal });
+  const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '';
+  const next = async () => {
+    while (true) {
+      const end = buffer.indexOf('\n\n');
+      if (end >= 0) {
+        const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        const data = frame.split('\n').find(line => line.startsWith('data: '));
+        if (data) return JSON.parse(data.slice(6));
+      } else {
+        const chunk = await reader.read(); assert(!chunk.done, 'stream must stay open');
+        buffer += decoder.decode(chunk.value, { stream: true });
+      }
+    }
+  };
+  try {
+    const initial = await next(); assert.equal(initial.tasks.length, 10);
+    assert(Buffer.byteLength(JSON.stringify(initial)) > 65536);
+    assert(!('buffers' in initial.tasks[0].outputMonitor));
+    const task = tasks[0], marker = 'New verified project output is delivered after the large snapshot.';
+    h.adapter.notify('item/agentMessage/delta', { threadId: task.threadId, turnId: task.turnId, delta: marker }); await h.flush();
+    while (!(await next()).tasks.find(item => item.id === task.id).lastOutput.includes(marker)) {}
+  } finally { await reader.cancel(); abort.abort(); }
+});

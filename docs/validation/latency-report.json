@@ -1,0 +1,8 @@
+{
+  "measuredAt": "2026-09-12T16:36:47.659Z",
+  "samples": 20,
+  "p50Ms": 108,
+  "p95Ms": 112,
+  "maxMs": 113,
+  "scope": "single local client; mock Codex adapter; real HTTP SSE"
+}

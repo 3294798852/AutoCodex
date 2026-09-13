@@ -1,0 +1,20 @@
+{
+  "name": "autocodex-guard",
+  "version": "0.3.0",
+  "description": "Local Codex task monitoring, recovery checkpoints, and conversation handoffs.",
+  "author": {
+    "name": "AutoCodex project"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AutoCodex Guard",
+    "shortDescription": "监测 Codex 任务，保存进度并接续异常中断。",
+    "longDescription": "配合本机守护服务，查询受管任务状态、保存检查点并读取新会话交接材料。普通完成与用户中断不自动续发。",
+    "developerName": "AutoCodex project",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["查看本机受管任务和告警。", "保存当前受管任务的进度检查点。", "读取交接材料并接续原任务。"],
+    "brandColor": "#79DFBD"
+  },
+  "mcpServers": "./.mcp.json"
+}

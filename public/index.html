@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1118">
+  <title>AutoCodex · 本机监护</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/dashboard.mjs"></script>
+</head>
+<body>
+  <div id="auth-screen" class="auth-screen" hidden>
+    <form id="auth-form" class="auth-card">
+      <img src="/icon.svg" width="48" height="48" alt="AutoCodex">
+      <h1>连接本机监护</h1>
+      <p>通过启动器打开面板可自动连接。也可以输入本机连接文件中的访问口令。</p>
+      <label>访问口令<input id="auth-token" type="password" autocomplete="off" required></label>
+      <p id="auth-error" class="form-error" role="alert"></p>
+      <button class="button primary" type="submit">打开面板</button>
+    </form>
+  </div>
+
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="AutoCodex 首页"><img src="/icon.svg" width="35" height="35" alt=""><span>AutoCodex<small>LOCAL GUARD</small></span></a>
+      <div class="nav-label">工作台</div>
+      <nav aria-label="主导航">
+        <button class="nav-item active" data-view="monitor"><span class="nav-symbol">◫</span><span>运行监测</span></button>
+        <button class="nav-item" data-view="alerts"><span class="nav-symbol">◇</span><span>告警中心</span><b id="nav-alert-count" class="nav-count" hidden>0</b></button>
+        <button class="nav-item" data-view="settings"><span class="nav-symbol">⚙</span><span>恢复设置</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="local-label"><i class="dot mint"></i><span>数据保存在本机</span></div>
+        <div class="version-label">PC 本地监护 <span id="app-version">v0.3.0</span></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><div class="eyebrow">AUTOCODEX / WORKSPACE</div><h1 id="page-title">运行监测</h1><p id="page-subtitle">掌握任务进展，让每一次异常都有记录。</p></div>
+        <div class="top-actions"><span id="mode-badge" class="badge neutral">本机监护</span><span id="stream-status" class="live-status"><i class="dot"></i>连接中</span><button id="new-task" class="button primary"><span aria-hidden="true">＋</span> 新建监护任务</button></div>
+      </header>
+
+      <div id="mode-notice" class="notice" hidden><span class="notice-icon">◎</span><div><strong>故障演练模式</strong><span>使用模拟会话验证恢复规则，不调用模型，也不会改变项目文件。</span></div></div>
+      <div id="fatal-notice" class="notice danger" hidden><strong>守护服务发生内部错误，已停止自动派发。请检查服务日志后重新启动。</strong></div>
+      <div id="connection-notice" class="notice danger" hidden><strong>与本机守护服务的连接已中断，正在重连。任务状态暂时无法更新。</strong></div>
+
+      <section id="view-monitor" class="view">
+        <div class="metrics" aria-label="运行概况">
+          <article class="metric"><div><span>正在运行</span><i class="metric-icon mint-text">↗</i></div><strong id="metric-running">0</strong><small>已受管的活动任务</small></article>
+          <article class="metric"><div><span>自动继续</span><i class="metric-icon blue-text">↻</i></div><strong id="metric-retries">0</strong><small>累计续发次数</small></article>
+          <article class="metric"><div><span>待处理告警</span><i class="metric-icon amber-text">◇</i></div><strong id="metric-alerts">0</strong><small>需要留意或人工处理</small></article>
+          <article class="metric"><div><span>正常完成</span><i class="metric-icon muted">✓</i></div><strong id="metric-completed">0</strong><small>本机记录中的完成任务</small></article>
+        </div>
+        <div class="connection-strip"><div><i id="codex-dot" class="dot amber"></i><span id="codex-status">尚未连接 Codex</span></div><button id="connect-codex" class="text-button">检查连接 ↗</button><button id="configure-codex" class="text-button">安装路径</button><span class="scope-note">仅监护由本面板启动或明确移交的会话</span></div>
+
+        <div class="workspace">
+          <section class="panel task-panel" aria-label="任务列表">
+            <div class="panel-heading"><h2>监护任务 <span id="task-count" class="small-count">0</span></h2><span class="tiny-label">LIVE</span></div>
+            <div class="task-filters"><input id="task-search" type="search" placeholder="搜索任务或工作目录" aria-label="搜索任务"><select id="task-filter" aria-label="筛选任务"><option value="all">全部状态</option><option value="active">执行中</option><option value="attention">待处理</option><option value="completed">已完成</option></select></div>
+            <div id="task-list" class="task-list"></div>
+            <div class="list-footer"><i class="dot mint"></i>状态实时更新<span id="last-update">—</span></div>
+          </section>
+
+          <section class="panel detail-panel" aria-label="任务详情">
+            <div id="detail-empty" class="empty-state"><div class="empty-orbit"><span>↻</span></div><h2>为下一项工作开启监护</h2><p>创建任务后，可在这里查看执行、重试与接续记录。</p><button id="empty-create" class="button secondary">创建第一个任务</button><small>遇到需要用户决定的操作，Codex 会等待你的处理。</small></div>
+            <div id="task-detail" hidden>
+              <div class="detail-heading"><div><div class="eyebrow">TASK OVERVIEW</div><h2 id="detail-name"></h2></div><span id="detail-status" class="badge"></span></div>
+              <div class="detail-meta"><span id="detail-cwd"></span><span id="detail-model"></span></div>
+              <p id="detail-objective" class="objective"></p>
+              <div class="task-toolbar" aria-label="任务操作"><button id="pause-task" class="button compact">暂停恢复</button><button id="continue-task" class="button compact">手动继续</button><button id="replace-task" class="button compact">新会话接续</button><button id="reconcile-task" class="button compact">核对状态</button><button id="stop-task" class="button compact danger-text">停止任务</button></div>
+              <div id="retry-banner" class="retry-banner" hidden><span class="spinner"></span><span id="retry-message"></span></div>
+              <div class="recovery-card"><div class="section-heading"><h3>恢复进度</h3><select id="task-strategy" aria-label="当前任务接续策略"><option value="manual">达到阈值 · 人工处理</option><option value="new_session">达到阈值 · 新会话接续</option></select></div><div id="recovery-track" class="recovery-track"></div><p id="failure-evidence" class="recovery-note"></p><p id="output-watch" class="recovery-note"></p><div class="recovery-foot"><span id="retry-budget"></span><span id="session-count"></span></div></div>
+              <div id="approval-list" class="approval-list"></div>
+              <div class="detail-tabs" role="tablist" aria-label="任务内容"><button class="detail-tab active" data-detail="timeline" role="tab">事件时间线</button><button class="detail-tab" data-detail="output" role="tab">最近输出</button><button class="detail-tab" data-detail="handoff" role="tab">会话与交接</button></div>
+              <div id="detail-timeline" class="detail-content"><ol id="timeline" class="timeline"></ol></div>
+              <div id="detail-output" class="detail-content" hidden><pre id="latest-output" class="output-box"></pre></div>
+              <div id="detail-handoff" class="detail-content" hidden><div id="thread-chain" class="thread-chain"></div><div id="handoff-list"></div><form id="checkpoint-form"><label>保存工作检查点<textarea id="checkpoint-text" rows="4" maxlength="8000" placeholder="记录已完成的工作、待办事项和需要保留的约束。"></textarea></label><button class="button secondary compact" type="submit">保存检查点</button></form></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-alerts" class="view" hidden><div class="panel full-panel"><div class="panel-heading"><h2>告警记录</h2><a class="text-button" href="/api/v1/export" download>导出运行记录 ↓</a></div><div class="panel-description">确认只表示你已知晓告警。任务是否继续，由你单独决定。</div><div id="alerts-list"></div></div></section>
+
+      <section id="view-settings" class="view" hidden>
+        <form id="codex-path-form" class="panel installation-panel">
+          <div class="panel-heading"><h2>Codex 安装</h2><span id="codex-installation-badge" class="badge neutral">自动发现 / 手动指定</span></div>
+          <div class="settings-fields">
+            <p id="codex-config-note" class="settings-note">正在读取安装设置…</p>
+            <div id="codex-path-controls" hidden>
+              <div class="installation-current"><span>本次使用</span><strong id="codex-source"></strong><code id="codex-current-path"></code></div>
+              <label>下次启动的 Codex 路径<input id="codex-path-input" maxlength="4096" placeholder="留空自动发现，或输入 Codex CLI 文件 / 安装目录" autocomplete="off" spellcheck="false"><small>支持中文、空格和相对路径。相对路径以服务工作目录为基准；桌面主程序不可作为 CLI。</small></label>
+              <div class="installation-actions"><button id="codex-detect" type="button" class="button">检测路径</button><button id="codex-save" type="submit" class="button secondary">保存，重启后生效</button></div>
+              <p id="codex-path-result" class="installation-result" role="status" aria-live="polite"></p>
+              <p id="codex-restart-note" class="settings-note amber-text" hidden>路径已保存。请在合适时机停止并重新启动守护服务，再检查连接；当前任务仍使用本次启动的路径。</p>
+            </div>
+          </div>
+        </form>
+        <div class="settings-layout"><form id="settings-form" class="panel settings-panel"><div class="panel-heading"><h2>默认恢复规则</h2><span class="badge neutral">用于新任务</span></div><div class="settings-fields">
+        <label>同类错误达到判定条件后<select id="setting-strategy"><option value="manual">停止自动继续，交给我处理</option><option value="new_session">保存进度，自动新建会话接续</option></select><small>普通错误 3 次，容量不足/临时限流 5 次，均包含首次错误。新会话首轮立即失败时完全停止。</small></label>
+        <div class="form-row"><label>同类错误时间窗口（分钟）<input id="setting-error-window" type="number" min="1" max="60" required><small>最近 3/5 次在窗口内发生，或期间没有有效输出，才触发处理</small></label><label>无有效输出告警时限（分钟）<input id="setting-no-output" type="number" min="1" max="1440" required><small>到期停止自动恢复并告警；用户暂停和等待批准期间不计时</small></label></div>
+        <div class="form-row"><label>无输出期间自动继续上限<input id="setting-attempts" type="number" min="2" max="30" required><small>额外次数保护；有效输出后重置，累计记录保留</small></label><label>首次重试等待（秒）<input id="setting-delay" type="number" min="0.05" max="60" step="0.05" required><small>后续按指数延长，并加入少量抖动</small></label></div>
+        <div class="form-row"><label>最长基础等待（秒）<input id="setting-max-delay" type="number" min="0.05" max="300" step="0.05" required></label><label>新会话启动窗口（秒）<input id="setting-window" type="number" min="0.1" max="120" step="0.1" required></label></div>
+        <p class="settings-note">有效输出指新的业务正文或成功工具结果；空白、重试提示、心跳和内部思考不计。长期无输出保护始终交给人工；正常完成、用户中断、等待批准及不可恢复错误不会自动续发。</p><button class="button primary" type="submit">保存默认规则</button>
+      </div></form><div class="settings-aside"><article class="panel side-card"><h3>本机通知</h3><p>允许浏览器通知后，新告警可在桌面提示。面板需保持打开。</p><button id="notification-toggle" class="button secondary">开启桌面通知</button><small id="notification-status"></small></article><article class="panel side-card"><h3>运行边界</h3><p>服务和记录保存在这台电脑，面板仅允许本机访问。</p><p>手机 APP 与远程配对将在后续阶段提供。</p><a class="text-button" href="/api/v1/export" download>导出最近运行记录 ↗</a></article></div></div></section>
+      <footer class="main-footer"><span>AutoCodex Guard <span class="separator">/</span> 让工作可以接续</span><span id="clock"></span></footer>
+    </main>
+  </div>
+
+  <dialog id="create-dialog" class="modal"><form id="create-form"><div class="modal-heading"><div><div class="eyebrow">NEW GUARDED TASK</div><h2>新建监护任务</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><div class="modal-body"><label>任务来源<select id="create-mode"><option value="new">创建一个新 Codex 会话</option><option value="adopt">接管已停止的历史会话</option></select></label><div id="adopt-fields" hidden><label>历史会话 ID<input id="create-thread" maxlength="180" placeholder="粘贴要接续的会话 ID"></label><label>旧对话链接（可选）<input id="create-source-url" maxlength="2000" placeholder="原客户端提供的会话链接"></label><label class="checkbox-label"><input id="ownership-confirm" type="checkbox">我已在其他客户端停止此会话，并交由 AutoCodex 独占监护</label></div><label>任务名称<input id="create-name" maxlength="120" placeholder="例如：完成登录模块并运行测试" required></label><label>工作目录<input id="create-cwd" placeholder="选择要处理的本机项目绝对路径" required></label><label>任务描述<textarea id="create-prompt" rows="4" maxlength="16000" placeholder="写下需要 Codex 完成的工作。恢复后会继续同一目标。" required></textarea></label><div id="scenario-field" hidden><label>故障演练场景<select id="create-scenario"></select></label></div><div class="form-row"><label>错误反复后<select id="create-strategy"><option value="manual">告警并等待我处理</option><option value="new_session">自动新会话接续</option></select></label><label>项目访问<select id="create-sandbox"><option value="workspace-write">允许修改当前项目</option><option value="read-only">只读检查</option></select></label></div><label>模型（可选）<input id="create-model" maxlength="128" placeholder="留空使用当前 Codex 配置"></label><p id="create-error" class="form-error" role="alert"></p></div><div class="modal-footer"><span>需要额外权限时会等待你的决定</span><button type="button" class="button close-dialog">取消</button><button id="create-submit" class="button primary" type="submit">开始监护</button></div></form></dialog>
+
+  <dialog id="history-dialog" class="modal wide"><div class="modal-heading"><h2 id="history-title">会话历史</h2><button type="button" class="icon-button close-dialog" aria-label="关闭历史">×</button></div><div id="history-content" class="modal-body history-content"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

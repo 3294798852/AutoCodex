@@ -1,0 +1,17 @@
+{
+  "testedAt": "2026-09-13T04:02:27.708Z",
+  "version": "0.3.0",
+  "checks": [
+    "automatic installation and source shown",
+    "manual directory detects and saves without switching the active installation",
+    "saved path and restart reminder survive page reload",
+    "installation settings usable at 390px without horizontal overflow",
+    "invalid manual path is reported and rejected",
+    "blank input restores automatic configuration",
+    "real app-server connection check succeeds without a task"
+  ],
+  "browserErrors": [],
+  "modelGenerationRequested": false,
+  "desktop": "1500x1100",
+  "narrow": "390x844"
+}

@@ -1,0 +1,87 @@
+{
+  "testedAt": "2026-09-12T16:24:10.905Z",
+  "endpoint": "localhost fixture only",
+  "paidModelRequests": 0,
+  "results": [
+    {
+      "failure": "http_503",
+      "strategy": "manual",
+      "finalStatus": "needs_attention",
+      "automaticContinuations": 2,
+      "sessions": 1,
+      "localRequests": 3,
+      "category": "upstream_5xx",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "http_503",
+      "strategy": "new_session",
+      "finalStatus": "failed",
+      "automaticContinuations": 2,
+      "sessions": 2,
+      "localRequests": 4,
+      "category": "upstream_5xx",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "stream_disconnect",
+      "strategy": "manual",
+      "finalStatus": "needs_attention",
+      "automaticContinuations": 2,
+      "sessions": 1,
+      "localRequests": 3,
+      "category": "stream_disconnected",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "capacity",
+      "strategy": "manual",
+      "finalStatus": "needs_attention",
+      "automaticContinuations": 4,
+      "sessions": 1,
+      "localRequests": 5,
+      "category": "server_overloaded",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "rate_limit",
+      "strategy": "manual",
+      "finalStatus": "needs_attention",
+      "automaticContinuations": 4,
+      "sessions": 1,
+      "localRequests": 5,
+      "category": "rate_limit",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "quota_402",
+      "strategy": "manual",
+      "finalStatus": "needs_attention",
+      "automaticContinuations": 0,
+      "sessions": 1,
+      "localRequests": 1,
+      "category": "quota",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "quota_hidden_429",
+      "strategy": "manual",
+      "finalStatus": "needs_attention",
+      "automaticContinuations": 4,
+      "sessions": 1,
+      "localRequests": 5,
+      "category": "rate_limit",
+      "noOutputBlocked": false
+    },
+    {
+      "failure": "silent_stream",
+      "strategy": "new_session",
+      "finalStatus": "running",
+      "automaticContinuations": 0,
+      "sessions": 1,
+      "localRequests": 1,
+      "category": null,
+      "noOutputBlocked": true
+    }
+  ]
+}

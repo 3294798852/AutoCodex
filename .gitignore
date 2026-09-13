@@ -1,0 +1,15 @@
+node_modules/
+.autocodex/
+.work/
+coverage/
+dist/
+*.log
+*.sqlite*
+*.db*
+.env
+.env.*
+!.env.example
+!.env.sample
+.DS_Store
+Thumbs.db
+Desktop.ini

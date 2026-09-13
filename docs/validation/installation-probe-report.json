@@ -1,0 +1,22 @@
+{
+  "testedAt": "2026-09-13T04:13:53.801Z",
+  "platform": "Windows",
+  "ordinaryDiscovery": {
+    "source": "PATH",
+    "kind": "npm-native",
+    "version": "codex-cli 0.153.4",
+    "connected": true,
+    "loadedThreads": 0,
+    "modelGenerationRequested": false
+  },
+  "withPathAndNpmCandidatesRemoved": {
+    "source": "桌面版附带 CLI",
+    "kind": "native",
+    "version": "codex-cli 0.153.4",
+    "connected": true,
+    "loadedThreads": 0,
+    "modelGenerationRequested": false
+  },
+  "globalEnvironmentModified": false,
+  "pathsOmittedFromPublishedReport": true
+}

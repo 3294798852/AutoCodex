@@ -1,0 +1,33 @@
+{
+  "testedAt": "2026-09-13T03:45:52.297Z",
+  "version": "0.3.0",
+  "browser": "Chromium / local installed browser",
+  "checks": [
+    "fragment token removed after cookie exchange",
+    "demo mode explicitly displayed",
+    "all seven terminal/approval recovery scenarios reached expected states",
+    "new-session startup failure stopped at one replacement",
+    "three same-type failures include E0 and exactly two retries",
+    "capacity and rate limits allow four retries, stopping at five errors",
+    "live silent turn triggers independent output deadline",
+    "user can stop the silent running turn after the alert",
+    "explicit approval completes without auto-retry",
+    "checkpoint and old-thread history usable from the panel",
+    "error window and no-output timeout settings saved",
+    "default five-minute window and ten-minute watchdog restored",
+    "state filtering works",
+    "detail shows the actual threshold, time/output evidence and watchdog",
+    "acknowledgment does not resume a task",
+    "390px layout has no horizontal overflow",
+    "no uncaught browser errors"
+  ],
+  "browserErrors": [],
+  "desktop": "1600x1100",
+  "narrow": "390x844",
+  "screenshots": [
+    "dashboard.png",
+    "alerts.png",
+    "mobile-layout.png",
+    "recovery-settings.png"
+  ]
+}
