@@ -1,20 +1,17 @@
-import { spawn } from 'node:child_process';
-import { readFileSync, openSync, closeSync } from 'node:fs';
-import { join } from 'node:path';
-import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
+import { launchService } from './server/launcher.mjs';
+import { redact } from './core/util.mjs';
+
+// Windows PowerShell 5.1 decodes native stdout using the console code page.
+// ASCII JSON escapes keep localized messages and paths intact on any code page.
+const print = value => process.stdout.write(JSON.stringify(value).replace(/[^\x00-\x7f]/g, character => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0')) + '\n');
 
 // The Windows launcher passes argv in a temporary JSON file. This preserves
 // spaces, Unicode and trailing backslashes without shell command construction.
-const request = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-if (!Array.isArray(request.args) || !request.args.every(arg => typeof arg === 'string') || typeof request.cwd !== 'string' || typeof request.dataDirectory !== 'string') throw new Error('无效的启动请求');
-const output = openSync(join(request.dataDirectory, 'service.log'), 'a');
-const errors = openSync(join(request.dataDirectory, 'service-error.log'), 'a');
 try {
-  const proc = spawn(process.execPath, request.args, {
-    cwd: request.cwd, env: process.env, detached: true, windowsHide: true,
-    stdio: ['ignore', output, errors],
-  });
-  await once(proc, 'spawn');
-  proc.unref();
-  process.stdout.write(JSON.stringify({ pid: proc.pid }) + '\n');
-} finally { closeSync(output); closeSync(errors); }
+  const request = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+  print(await launchService(request));
+} catch (error) {
+  print({ ok: false, error: redact(error.message, 2000) });
+  process.exitCode = 1;
+}

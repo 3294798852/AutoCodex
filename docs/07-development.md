@@ -102,3 +102,11 @@ POST /api/v1/observations，正文 {"threadId":"…"}：只读元数据并加入
 rollout-reader 按字节增量、验证 session_meta.id、检查文件身份及末尾锚点；未完成行留在磁盘，超过 1 MiB 的行有界丢弃至换行。换文件/截断重建近期基线，不重播历史通知。页端每 5 秒至少更新一次检查时间。日志内容仅作为数据解析，不执行原文。
 
 新增验证：npm run smoke:existing（两个隔离真实 Codex 进程、本机测试上游）；npm run smoke:ui-existing（文件更新→HTTP/SSE→浏览器、搜索/分页、移交和布局）。均不操作用户真实会话。
+
+## 0.5.1 启动器
+
+src/launch.mjs 从临时 JSON 读取请求，调用 src/server/launcher.mjs 完成实例检查、后台派生和就绪确认。输出 {ok,status,pid,origin,launchPath}，status 为 started/reused，Foreground 的无实例探测返回 absent。错误输出 {ok:false,error} 且退出码 1；JSON 使用 ASCII Unicode 转义，避免 Windows PowerShell 5.1 控制台代码页破坏中文路径/错误。
+
+复用要求锁 PID 存活、连接 PID 相同、合法本机 origin、healthz 正常及 /api/v1/codex 管理认证通过；不接受跳转，响应大小和等待时间有上限。无锁或已退出锁由正常 Store 启动过程处理；活锁无响应不派生第二实例。端口/Codex 路径显式变化与模式不匹配返回具体错误。成功后重写本机 HTML 入口，管理口令不写到命令输出。
+
+新增 test/launcher.test.mjs 使用真实隔离后台服务和 PowerShell 验证重复启动、并发、活动任务与 DND 保留、旧连接、占用端口、认证/模式/参数冲突、无响应锁、错误脱敏和前台探测。运行过程不触碰真实用户会话。

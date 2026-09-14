@@ -1,0 +1,21 @@
+{
+  "recycleEntryPackaged": "passed",
+  "testedAt": "2026-09-14T12:49:33.9885242Z",
+  "unicodeRelocation": "passed",
+  "dndPersistence": "passed",
+  "manualUnicodePath": "passed",
+  "dndDefaults": "passed",
+  "customDataDirectory": "passed",
+  "manualOverride": "passed",
+  "shutdown": "passed",
+  "machinePathsInMcpTemplate": false,
+  "modelGenerationRequested": false,
+  "credentialsIncluded": false,
+  "savedPathRestart": "passed",
+  "automaticDiscovery": "passed",
+  "version": "0.5.1",
+  "pluginReconfiguration": "passed",
+  "demoStartup": "passed",
+  "codexVersion": "codex-cli 0.153.4",
+  "scope": "Relocated runtime checks before embedding final report"
+}

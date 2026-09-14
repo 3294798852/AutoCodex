@@ -1,0 +1,23 @@
+{
+  "testedAt": "2026-09-14T12:49:30.889Z",
+  "version": "0.5.1",
+  "fullTests": 137,
+  "testsPassed": 137,
+  "moduleChecks": 50,
+  "liveServiceVersion": "0.5.1",
+  "liveTaskCount": 0,
+  "reusedSamePid": true,
+  "originalFailure": "healthy existing service caused duplicate data-directory lock error",
+  "regressions": [
+    "same process with running task and DND settings preserved",
+    "three simultaneous launches converge",
+    "stale connection never reuses other data directory",
+    "explicit mode, port and CLI changes rejected",
+    "occupied port error includes actionable detail",
+    "unresponsive active lock is preserved",
+    "invalid credential, non-loopback origin and redirect rejected",
+    "foreground probe and localized/redacted stderr",
+    "Windows PowerShell File and Command invocations"
+  ],
+  "modelGenerationRequested": false
+}

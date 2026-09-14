@@ -36,45 +36,38 @@ if ($CheckCodex) {
     & $nodeExecutable @directArgs --diagnose-codex
     exit $LASTEXITCODE
 }
-$launchFile = Join-Path $dataDirectory 'open-panel.html'
 New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
+# The helper verifies an existing instance before starting another process.
+# JSON preserves exact paths and avoids shell quoting for Unicode/space names.
+$requestFile = Join-Path $dataDirectory ('.launch-' + [guid]::NewGuid().ToString() + '.json')
+$request = @{ args = $directArgs; cwd = $projectDirectory; dataDirectory = $dataDirectory; portExplicit = $PSBoundParameters.ContainsKey('Port'); probeOnly = [bool]$Foreground } | ConvertTo-Json -Depth 4
+[System.IO.File]::WriteAllText($requestFile, $request, [System.Text.UTF8Encoding]::new($false))
+try {
+    $launchOutput = & $nodeExecutable (Join-Path $projectDirectory 'src\launch.mjs') $requestFile
+    $launchExitCode = $LASTEXITCODE
+    try { $result = ($launchOutput -join [Environment]::NewLine) | ConvertFrom-Json }
+    catch { throw "无法读取启动结果。请查看 $dataDirectory\service-error.log。" }
+    if ($launchExitCode -ne 0 -or -not $result.ok) {
+        if ($result.error) { throw $result.error }
+        throw "后台启动失败。请查看 $dataDirectory\service-error.log。"
+    }
+} finally { Remove-Item -LiteralPath $requestFile -Force }
 $configureScript = Join-Path $PSScriptRoot 'Configure-LocalPlugin.ps1'
 if (Test-Path -LiteralPath $configureScript) {
     & $configureScript -ConnectionFile (Join-Path $dataDirectory 'connection.json')
 }
-if ($Foreground) {
+if ($Foreground -and $result.status -eq 'absent') {
     & $nodeExecutable @directArgs
     exit $LASTEXITCODE
 }
-# A detached Node child with no inherited terminal handles lets this script
-# return even when invoked from another program. JSON preserves the exact argv.
-$requestFile = Join-Path $dataDirectory ('.launch-' + [guid]::NewGuid().ToString() + '.json')
-$request = @{ args = $directArgs; cwd = $projectDirectory; dataDirectory = $dataDirectory } | ConvertTo-Json -Depth 4
-[System.IO.File]::WriteAllText($requestFile, $request, [System.Text.UTF8Encoding]::new($false))
-try {
-    $launchOutput = & $nodeExecutable (Join-Path $projectDirectory 'src\launch.mjs') $requestFile
-    if ($LASTEXITCODE -ne 0) { throw '后台启动失败，请检查 Node.js 安装与数据目录。' }
-    $workerProcessId = ($launchOutput | ConvertFrom-Json).pid
-} finally { Remove-Item -LiteralPath $requestFile -Force }
-$process = Get-Process -Id $workerProcessId -ErrorAction SilentlyContinue
-if (-not $process) { throw "服务启动失败。请查看 $dataDirectory\service-error.log。" }
-for ($attempt = 0; $attempt -lt 60; $attempt++) {
-    Start-Sleep -Milliseconds 200
-    $process.Refresh()
-    if ($process.HasExited) {
-        throw "服务启动失败。请查看 $dataDirectory\service-error.log。"
-    }
-    $connectionFile = Join-Path $dataDirectory 'connection.json'
-    if (Test-Path -LiteralPath $connectionFile) {
-        try {
-            $connection = Get-Content -Raw -Encoding UTF8 -LiteralPath $connectionFile | ConvertFrom-Json
-            if ($connection.pid -eq $process.Id -and (Test-Path -LiteralPath $launchFile)) {
-                if (-not $NoBrowser) { Invoke-Item -LiteralPath $launchFile }
-                Write-Output "AutoCodex 已启动：$($connection.origin)；进程 $($process.Id)"
-                Write-Output "重新打开面板：$launchFile"
-                exit 0
-            }
-        } catch { }
-    }
+if ($result.status -eq 'reused') {
+    Write-Output "AutoCodex 已在运行，使用现有服务：$($result.origin)；进程 $($result.pid)"
+} else {
+    Write-Output "AutoCodex 已启动：$($result.origin)；进程 $($result.pid)"
 }
-throw '等待服务启动超时，请查看服务日志。'
+Write-Output "重新打开面板：$($result.launchPath)"
+if (-not $NoBrowser) {
+    try { Invoke-Item -LiteralPath $result.launchPath }
+    catch { Write-Warning "服务正常，但浏览器未能自动打开。请手动打开：$($result.launchPath)" }
+}
+exit 0
