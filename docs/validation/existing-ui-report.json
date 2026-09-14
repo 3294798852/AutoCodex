@@ -1,0 +1,26 @@
+{
+  "testedAt": "2026-09-14T11:48:45.063Z",
+  "checks": [
+    "existing conversations list, pagination and local-file launch",
+    "search and one-click attach without ID, directory or new prompt",
+    "duplicate attach opens existing monitor",
+    "five real filesystem-to-SSE-to-browser updates within three seconds",
+    "explicit failure is visible and raises an alert without sending messages",
+    "stop monitoring never interrupts the original conversation",
+    "reload restores existing monitoring selection",
+    "archived conversation filter",
+    "390px layout has no horizontal overflow",
+    "explicit handover resumes same conversation and preserves model"
+  ],
+  "samples": 5,
+  "latencyMs": [
+    157,
+    1014,
+    1043,
+    1031,
+    1037
+  ],
+  "p95Ms": 1043,
+  "browserErrors": [],
+  "scope": "isolated history fixtures; real filesystem/HTTP/SSE/browser; no paid requests"
+}

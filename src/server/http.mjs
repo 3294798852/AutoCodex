@@ -136,6 +136,12 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
         res.on('close', () => forgetClient(res)); return;
       }
       if (req.method === 'POST' && path === '/api/v1/connect') { await body(req); send(res, 200, await supervisor.adapter.connect()); return; }
+      if (req.method === 'GET' && path === '/api/v1/threads') {
+        send(res, 200, await supervisor.existing.list({ searchTerm: url.searchParams.get('search'), cursor: url.searchParams.get('cursor'), archived: url.searchParams.get('archived') === 'true' })); return;
+      }
+      if (req.method === 'POST' && path === '/api/v1/observations') {
+        send(res, 201, await supervisor.existing.add(await body(req))); return;
+      }
       if (req.method === 'GET' && path === '/api/v1/codex') {
         send(res, 200, codexSettings?.snapshot() || { enabled: false, message: '当前运行环境不支持安装设置' }); return;
       }

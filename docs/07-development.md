@@ -90,3 +90,15 @@ CLI 存在 `codex queue --thread ... --message ...`，但它依赖会话路由/�
 发布脚本从白名单组件构建新的暂存目录。替换 `dist/autocodex-guard` 前核对绝对路径、符号链接及运行数据；存在数据时拒绝清理。发布的 `.mcp.json` 是空模板，由目标机器首次启动生成。不要把开发机生成的配置直接复制进 ZIP。
 
 维护任何恢复逻辑时更新行为测试、需求语义与 PROJECT_STATE.md；不把历史既有计划误标记为新的用户授权。
+
+## 0.5 已有会话接口
+
+GET /api/v1/threads?search=标题&cursor=分页位置&archived=true：返回最多 30 条元数据，nextCursor 分页。所有提供方，主交互会话来源；不返回完整正文或路径。
+
+POST /api/v1/observations，正文 {"threadId":"…"}：只读元数据并加入观察，不发消息、不 resume；重复返回已存在任务。仅管理员口令可使用上述接口。
+
+任务 control 增加 observe_stop、observe_start、observe_refresh、adopt。adopt 必须带 ownershipConfirmed=true，可带 message；成功 resume 后转为 managed 并发送继续。观察任务使用 controlMode=observe、status=observing/stopped；observation 保存 phase、enabled、证据时间、读取游标与覆盖提示。观察任务不进入 Supervisor 的自动恢复、连接丢失、重启核对和批准路径。读写同一任务经 exclusive 串行。
+
+rollout-reader 按字节增量、验证 session_meta.id、检查文件身份及末尾锚点；未完成行留在磁盘，超过 1 MiB 的行有界丢弃至换行。换文件/截断重建近期基线，不重播历史通知。页端每 5 秒至少更新一次检查时间。日志内容仅作为数据解析，不执行原文。
+
+新增验证：npm run smoke:existing（两个隔离真实 Codex 进程、本机测试上游）；npm run smoke:ui-existing（文件更新→HTTP/SSE→浏览器、搜索/分页、移交和布局）。均不操作用户真实会话。

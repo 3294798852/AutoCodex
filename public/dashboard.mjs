@@ -2,6 +2,8 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const labels = { starting: '启动中', running: '运行中', retry_wait: '等待恢复', recovering: '接续中', waiting_user: '等待用户', needs_attention: '需要处理', completed: '已完成', stopped: '已停止', failed: '接续已终止' };
 const busyStates = ['starting', 'running', 'recovering', 'waiting_user'];
+const observedLabels = { active_recent: '最近有活动', completed: '本回合已完成', interrupted: '本回合已中断', error: '记录了异常', waiting_user: '等待用户', unknown: '状态待确认', unavailable: '记录不可读' };
+const taskLabel = task => task.controlMode === 'observe' ? task.observation.enabled ? observedLabels[task.observation.phase] || '监测中' : '已停止监测' : labels[task.status] || task.status;
 let state, selectedId, currentView = 'monitor', detailTab = 'timeline', detailData, eventStream, refreshTimer, toastTimer;
 let requestVersion = 0, approvalSignature = '', operationBusy = false, seenAlerts = null;
 let installationSettings, installationBusy = false;
@@ -17,7 +19,7 @@ function time(value, full = false) {
   const date = new Date(value);
   return full ? date.toLocaleString('zh-CN', { hour12: false }) : date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
-function badge(task) { return element('span', `badge ${task.paused ? 'paused' : task.status}`, task.paused ? `${labels[task.status] || task.status} · 已暂停恢复` : labels[task.status] || task.status); }
+function badge(task) { return element('span', `badge ${task.controlMode === 'observe' ? task.observation.enabled ? task.observation.phase : 'stopped' : task.paused ? 'paused' : task.status}`, task.paused ? `${taskLabel(task)} · 已暂停恢复` : taskLabel(task)); }
 function currentTask() { return state?.tasks.find(task => task.id === selectedId); }
 function toast(text, error = false) {
   const node = $('#toast'); node.textContent = text; node.className = error ? 'toast error' : 'toast'; node.hidden = false;
@@ -54,19 +56,20 @@ function renderState(next) {
   $('#mode-badge').className = `badge ${state.mode === 'demo' ? 'demo' : 'neutral'}`;
   $('#fatal-notice').hidden = !state.faulted;
   const alerts = state.alerts.filter(alert => !alert.acknowledgedAt);
-  $('#metric-running').textContent = state.tasks.filter(task => ['starting', 'running', 'recovering'].includes(task.status)).length;
+  $('#metric-running').textContent = state.tasks.filter(task => ['starting', 'running', 'recovering'].includes(task.status) || task.controlMode === 'observe' && task.observation.enabled && task.observation.phase === 'active_recent').length;
   $('#metric-retries').textContent = state.tasks.reduce((sum, task) => sum + task.totalAutoAttempts, 0);
   $('#metric-alerts').textContent = alerts.length;
-  $('#metric-completed').textContent = state.tasks.filter(task => task.status === 'completed').length;
+  $('#metric-completed').textContent = state.tasks.filter(task => task.status === 'completed' || task.controlMode === 'observe' && task.observation.phase === 'completed').length;
   $('#task-count').textContent = state.tasks.length;
   $('#nav-alert-count').textContent = alerts.length; $('#nav-alert-count').hidden = !alerts.length;
   $('#last-update').textContent = time(Date.now());
   $('#codex-dot').className = `dot ${state.connection.connected ? 'mint' : 'amber'}`;
-  $('#codex-status').textContent = state.mode === 'demo' ? '故障演练环境已就绪' : state.connection.connected ? 'Codex 已连接 · 受管会话监护中'
+  $('#codex-status').textContent = state.mode === 'demo' ? '故障演练环境已就绪' : state.connection.connected ? 'Codex 已连接 · 可选择已有会话'
     : state.connection.installation?.found === false ? '未找到 Codex · 请设置安装路径' : '尚未连接 Codex · 启动任务时自动连接';
   $('#codex-status').title = state.connection.detail || '';
   $('#connect-codex').hidden = state.mode === 'demo';
   $('#configure-codex').hidden = state.mode === 'demo';
+  $('#existing-tasks').hidden = state.mode === 'demo'; $('#empty-existing').hidden = state.mode === 'demo';
   renderTaskList(); renderTaskDetail(); renderAlerts(); notifyNewAlerts(alerts); queueDetail();
 }
 
@@ -74,15 +77,15 @@ function renderTaskList() {
   const query = $('#task-search').value.toLocaleLowerCase(), filter = $('#task-filter').value;
   const tasks = state.tasks.filter(task => {
     if (query && !`${task.name} ${task.cwd}`.toLocaleLowerCase().includes(query)) return false;
-    if (filter === 'active') return [...busyStates, 'retry_wait'].includes(task.status);
-    if (filter === 'attention') return ['needs_attention', 'failed', 'waiting_user'].includes(task.status);
-    return filter !== 'completed' || task.status === 'completed';
+    if (filter === 'active') return [...busyStates, 'retry_wait', 'observing'].includes(task.status);
+    if (filter === 'attention') return ['needs_attention', 'failed', 'waiting_user'].includes(task.status) || task.observation?.enabled && ['error', 'waiting_user', 'unavailable', 'unknown'].includes(task.observation.phase);
+    return filter !== 'completed' || task.status === 'completed' || task.controlMode === 'observe' && task.observation?.phase === 'completed';
   });
   const list = $('#task-list'); list.replaceChildren();
-  if (!tasks.length) { list.append(element('div', 'empty-list', state.tasks.length ? '没有符合筛选条件的任务' : '还没有监护任务\n从一项新工作开始')); return; }
+  if (!tasks.length) { list.append(element('div', 'empty-list', state.tasks.length ? '没有符合筛选条件的任务' : '还没有监护任务\n点击“已有会话”选择正在使用的会话')); return; }
   for (const task of tasks) {
     const button = element('button', `task-card${selectedId === task.id ? ' selected' : ''}`);
-    button.type = 'button'; button.dataset.taskId = task.id; button.setAttribute('aria-label', `${task.name}，${labels[task.status]}`);
+    button.type = 'button'; button.dataset.taskId = task.id; button.setAttribute('aria-label', `${task.name}，${taskLabel(task)}`);
     button.setAttribute('aria-pressed', String(selectedId === task.id));
     const top = element('div', 'task-card-top'); top.append(element('span', 'task-glyph', task.threadChain.length > 1 ? '↗' : '⌘'), element('span', 'task-title', task.name));
     const path = element('div', 'task-card-path', task.cwd); path.title = task.cwd;
@@ -110,6 +113,16 @@ function renderTaskDetail() {
   $('#detail-cwd').textContent = `⌁ ${task.cwd}`;
   $('#detail-model').textContent = task.mode === 'demo' ? '模拟 Codex 会话' : task.model || 'Codex 默认模型';
   $('#detail-objective').textContent = task.prompt;
+  const observe = task.controlMode === 'observe';
+  $('#managed-toolbar').hidden = observe; $('#managed-recovery').hidden = observe;
+  $('#observation-info').hidden = !observe; $('#observation-toolbar').hidden = !observe;
+  if (observe) {
+    const o = task.observation;
+    $('#observation-info').textContent = `${o.enabled ? '正在跟踪原会话的本机记录。' : '监测已停止。'}最近活动：${time(o.lastActivityAt, true)}；最近检查：${time(o.checkedAt, true)}。${o.phase === 'unknown' ? '目前无法确认是否仍在执行，请结合原客户端查看。' : ''}${o.phase === 'error' ? task.lastError?.message || '' : ''}${o.readError || ''}${o.coverage || ''} 自动续发和免打扰需先移交控制。`;
+    $('#observation-toggle').textContent = o.enabled ? '停止监测' : '恢复监测';
+    for (const selector of ['#observation-refresh', '#observation-toggle', '#observation-adopt']) $(selector).disabled = operationBusy;
+    $('#observation-refresh').disabled ||= !o.enabled;
+  }
   $('#pause-task').textContent = task.paused ? '恢复监护' : '暂停恢复';
   const active = busyStates.includes(task.status) || task.status === 'retry_wait';
   $('#pause-task').disabled = operationBusy || !active || task.outputMonitor?.blocked;
@@ -146,6 +159,7 @@ function renderTaskDetail() {
 function renderRetry() {
   const task = currentTask();
   if (!task) return;
+  if (task.controlMode === 'observe') { $('#retry-banner').hidden = true; return; }
   const monitor = task.outputMonitor;
   if (monitor) {
     const elapsed = Math.max(0, (monitor.suspendedAt ?? Date.now()) - monitor.sinceAt);
@@ -241,6 +255,7 @@ function renderAlerts() {
 }
 
 function renderApprovals(task) {
+  if (task.controlMode === 'observe') { $('#dnd-task-info').textContent = '原客户端负责权限处理；停止监测不会停止原会话。'; $('#approval-list').replaceChildren(); return; }
   $('#dnd-task-info').textContent = '免打扰自动处理 ' + (task.totalAutoApprovals || 0) + ' 次 · 回收站工具' + (task.recycleToolAvailable ? '已接入' : state.mode === 'demo' ? '仅演练' : '需在本版本新建会话接入');
   const requests = state.approvals.filter(request => request.taskId === task.id);
   const signature = `${task.id}:${requests.map(request => request.id).join(',')}`;
@@ -375,6 +390,37 @@ async function control(action, extra = {}) {
   finally { operationBusy = false; renderTaskDetail(); }
 }
 
+let existingCursor = null, existingLoading = false, existingQuery = '', existingArchived = false, adoptTaskId = null;
+async function loadExisting(more = false) {
+  if (existingLoading) return;
+  existingLoading = true; $('#existing-refresh').disabled = true; $('#existing-more').disabled = true;
+  $('#existing-error').textContent = ''; $('#existing-status').textContent = '正在读取本机 Codex 会话…';
+  if (!more) { existingCursor = null; existingQuery = $('#existing-search').value.trim(); existingArchived = $('#existing-archive').value === 'true'; $('#existing-list').replaceChildren(); }
+  try {
+    const query = new URLSearchParams({ search: existingQuery, archived: String(existingArchived), ...(more && existingCursor ? { cursor: existingCursor } : {}) });
+    const page = await api('/threads?' + query);
+    for (const thread of page.data) {
+      const row = element('article', 'existing-row'), description = element('div');
+      description.append(element('strong', '', thread.name), element('small', '', thread.cwd || '未记录工作目录'), element('small', '', `更新于 ${time(thread.updatedAt, true)} · ${thread.model || thread.source}`));
+      const button = element('button', 'button compact secondary', thread.taskId ? '查看监测' : '加入监测'); button.type = 'button';
+      button.addEventListener('click', async () => {
+        button.disabled = true; $('#existing-error').textContent = '';
+        try {
+          const taskId = thread.taskId || (await api('/observations', { threadId: thread.id })).id;
+          await refresh(); $('#existing-dialog').close(); selectTask(taskId); toast('已打开原会话监测');
+        } catch (error) { $('#existing-error').textContent = error.message; }
+        finally { button.disabled = false; }
+      });
+      row.append(description, button); $('#existing-list').append(row);
+    }
+    existingCursor = page.nextCursor;
+    $('#existing-more').hidden = !existingCursor;
+    $('#existing-status').textContent = $('#existing-list').children.length ? '点击加入后，原会话下次活动也会持续更新。' : '未找到会话。可更换搜索词或会话范围；若使用了其他 Codex 数据目录，请用相同的 CODEX_HOME 启动本服务。';
+  } catch (error) { $('#existing-error').textContent = error.message; $('#existing-status').textContent = '读取失败，可点击“查找 / 刷新”重试。'; }
+  finally { existingLoading = false; $('#existing-refresh').disabled = false; $('#existing-more').disabled = false; }
+}
+function openExisting() { $('#existing-dialog').showModal(); void loadExisting(); }
+
 function notificationStatus() {
   const permission = 'Notification' in window ? Notification.permission : 'unsupported';
   const enabled = localStorage.getItem('autocodex-notifications') === 'on';
@@ -401,6 +447,24 @@ for (const button of $$('.detail-tab')) button.addEventListener('click', () => {
 });
 $('#task-search').addEventListener('input', renderTaskList); $('#task-filter').addEventListener('change', renderTaskList);
 $('#new-task').addEventListener('click', openCreate); $('#empty-create').addEventListener('click', openCreate);
+$('#existing-tasks').addEventListener('click', openExisting); $('#empty-existing').addEventListener('click', openExisting);
+$('#existing-search-form').addEventListener('submit', event => { event.preventDefault(); void loadExisting(); });
+$('#existing-archive').addEventListener('change', () => void loadExisting());
+$('#existing-more').addEventListener('click', () => void loadExisting(true));
+$('#observation-refresh').addEventListener('click', () => void control('observe_refresh'));
+$('#observation-toggle').addEventListener('click', () => void control(currentTask().observation.enabled ? 'observe_stop' : 'observe_start'));
+$('#observation-adopt').addEventListener('click', () => {
+  adoptTaskId = selectedId; $('#adopt-form').reset(); $('#adopt-error').textContent = '';
+  $('#adopt-name').textContent = currentTask().name; $('#adopt-dialog').showModal();
+});
+$('#adopt-form').addEventListener('submit', async event => {
+  event.preventDefault(); $('#adopt-submit').disabled = true; $('#adopt-error').textContent = '';
+  try {
+    await api(`/tasks/${adoptTaskId}/control`, { action: 'adopt', ownershipConfirmed: $('#adopt-confirm').checked, message: $('#adopt-message').value });
+    $('#adopt-dialog').close(); await refresh(); selectTask(adoptTaskId); toast('原会话已移交并接续');
+  } catch (error) { $('#adopt-error').textContent = error.message; }
+  finally { $('#adopt-submit').disabled = false; }
+});
 $('#pause-task').addEventListener('click', () => void control(currentTask().paused ? 'resume' : 'pause'));
 $('#continue-task').addEventListener('click', () => void control('continue'));
 $('#replace-task').addEventListener('click', () => void control('new_session'));

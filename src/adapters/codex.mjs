@@ -79,6 +79,16 @@ export class CodexAdapter extends EventEmitter {
     await this.connect();
     return (await this.client.request('thread/read', { threadId, includeTurns: true })).thread;
   }
+  async readThreadSummary(threadId) {
+    await this.connect();
+    return (await this.client.request('thread/read', { threadId, includeTurns: false })).thread;
+  }
+  async listThreads({ cursor, searchTerm, archived = false } = {}) {
+    await this.connect();
+    return this.client.request('thread/list', { limit: 30, cursor: cursor || null,
+      searchTerm: searchTerm || null, archived, sortKey: 'updated_at', modelProviders: [],
+      sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'] });
+  }
   async resumeThread(task) {
     await this.connect();
     const result = await this.client.request('thread/resume', { threadId: task.threadId, ...this.config(task) });

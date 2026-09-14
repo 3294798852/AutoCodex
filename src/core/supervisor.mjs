@@ -1,4 +1,5 @@
 import { DND_LABELS, DND_KEYS, validateDnd, evaluateDnd } from './dnd-policy.mjs';
+import { ExistingSessions } from './existing-sessions.mjs';
 import { prepareRecycle, recyclePaths } from './recycle.mjs';
 import { EventEmitter } from 'node:events';
 import { VERSION } from '../version.mjs';
@@ -22,6 +23,7 @@ export class Supervisor extends EventEmitter {
   constructor({ store, adapter, origin = 'http://127.0.0.1:3210', now = Date.now, random = Math.random, recycle = recyclePaths }) {
     super();
     Object.assign(this, { store, adapter, origin, now, random });
+    this.existing = new ExistingSessions(this);
     this.recycle = recycle;
     this.dnd = validateDnd(store.getMeta('dndSettings') || {}, undefined, { restoring: true });
     this.dnd.revision = store.getMeta('dndSettings')?.revision || 0;
@@ -124,7 +126,7 @@ export class Supervisor extends EventEmitter {
   async createTask(input) {
     if (input.threadId) assert(input.ownershipConfirmed === true, '接管前需要确认该会话已在其他客户端停止');
     const requestedThreadId = input.threadId ? boundedText(input.threadId, '会话 ID', 180) : null;
-    if (requestedThreadId) assert(!this.store.tasks().some(existing => (existing.threadId === requestedThreadId || existing.adoptThreadId === requestedThreadId) && !TERMINAL.has(existing.status)), '该会话已由其他监护任务管理', 409);
+    if (requestedThreadId) assert(!this.store.tasks().some(existing => (existing.threadId === requestedThreadId || existing.adoptThreadId === requestedThreadId) && (existing.controlMode === 'observe' || !TERMINAL.has(existing.status))), '该会话已在其他监护任务中，请从原任务移交或继续', 409);
     const prompt = boundedText(input.prompt, '任务描述', 16000);
     const name = boundedText(input.name || prompt.slice(0, 60), '任务名称', 120);
     const cwdInput = boundedText(input.cwd, '工作目录', 2000);
@@ -257,7 +259,7 @@ export class Supervisor extends EventEmitter {
     const threadId = params.threadId || params.thread?.id;
     if (!threadId) return;
     const task = this.store.taskByThread(threadId);
-    if (!task || task.threadId !== threadId) return;
+    if (!task || task.threadId !== threadId || task.controlMode === 'observe') return;
     if (method === 'serverRequest/resolved') {
       const key = this.transportGeneration + ':' + threadId + ':' + String(params.requestId);
       this.resolvedRequests.add(key);
@@ -438,7 +440,9 @@ export class Supervisor extends EventEmitter {
 
   tick() {
     if (this.closed || this.faulted) return;
+    this.existing.tick();
     for (const task of this.store.tasks()) {
+      if (task.controlMode === 'observe') continue;
       if (task.paused || task.stopRequested || this.scheduled.has(task.id)) continue;
       if (['starting', 'running', 'recovering', 'retry_wait'].includes(task.status) && noOutputExpired(task, this.now())) {
         this.scheduled.add(task.id);
@@ -513,7 +517,7 @@ export class Supervisor extends EventEmitter {
   disconnected(error) {
     if (this.closed || this.faulted) return;
     this.emit('change', { type: 'connection', state: this.adapter.state });
-    for (const task of this.store.tasks().filter(item => BUSY.has(item.status))) {
+    for (const task of this.store.tasks().filter(item => item.controlMode !== 'observe' && BUSY.has(item.status))) {
       this.exclusive(task.id, () => {
         const latest = this.getTask(task.id);
         if (!BUSY.has(latest.status) || latest.stopRequested) return;
@@ -538,6 +542,7 @@ export class Supervisor extends EventEmitter {
       approval.status = 'expired'; this.store.saveRecord('approvals', approval, approval.taskId);
     }
     for (const task of this.store.tasks()) {
+      if (task.controlMode === 'observe') continue;
       if (TERMINAL.has(task.status)) continue;
       if (task.mode !== this.adapter.mode) {
         this.alert(task, 'mode_changed', '此任务属于另一运行模式，请使用对应数据目录'); continue;
@@ -597,7 +602,7 @@ export class Supervisor extends EventEmitter {
   routeRequest(request) {
     if (this.closing || this.closed || this.faulted) return;
     const task = this.store.taskByThread(request.params?.threadId), generation = this.transportGeneration;
-    if (!task || task.threadId !== request.params.threadId || task.stopRequested) { this.adapter.reject(request.id, '会话不在监护范围'); return; }
+    if (!task || task.controlMode === 'observe' || task.threadId !== request.params.threadId || task.stopRequested) { this.adapter.reject(request.id, '会话不在控制范围'); return; }
     this.exclusive(task.id, async () => {
       const latest = this.getTask(task.id), params = request.params || {};
       if (this.closing) return;
@@ -748,9 +753,10 @@ export class Supervisor extends EventEmitter {
   }
 
   async control(id, action, input = {}) {
-    if (action === 'stop') { this.getTask(id); this.pendingStops.add(id); this.nativeOperations.get(id)?.abort(); }
+    if (action === 'stop' && this.getTask(id).controlMode !== 'observe') { this.pendingStops.add(id); this.nativeOperations.get(id)?.abort(); }
     return this.exclusive(id, async () => {
       const task = this.getTask(id);
+      if (task.controlMode === 'observe') return this.existing.control(task, action, input);
       if (action === 'pause' || action === 'resume') {
         assert(action !== 'resume' || !task.outputMonitor.blocked, '长期无输出保护已触发，请核对当前回合后使用手动继续或新会话接续', 409);
         task.paused = action === 'pause';
@@ -825,7 +831,7 @@ export class Supervisor extends EventEmitter {
     for (const controller of this.nativeOperations.values()) controller.abort();
     await Promise.allSettled([...this.queues.values()]);
     this.closed = true;
-    for (const task of this.store.tasks().filter(item => BUSY.has(item.status))) {
+    for (const task of this.store.tasks().filter(item => item.controlMode !== 'observe' && BUSY.has(item.status))) {
       task.transportLost = true;
       this.store.saveTask(task);
     }

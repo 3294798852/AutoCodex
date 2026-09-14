@@ -1,0 +1,89 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { Store } from '../src/core/store.mjs';
+import { Supervisor } from '../src/core/supervisor.mjs';
+import { ControlledAdapter } from '../test/helpers.mjs';
+import { createDashboardServer } from '../src/server/http.mjs';
+
+const require = createRequire(import.meta.url), { chromium } = require(process.env.AUTOCODEX_PLAYWRIGHT_MODULE || 'playwright');
+const executablePath = [process.env.AUTOCODEX_BROWSER_PATH, chromium.executablePath(), join(process.env.ProgramFiles || '', 'Google', 'Chrome', 'Application', 'chrome.exe')].find(p => p && existsSync(p));
+assert(executablePath);
+mkdirSync('.work', { recursive: true });
+const directory = mkdtempSync(resolve('.work/ui-existing-')), store = new Store(join(directory, 'guard'));
+const adapter = new ControlledAdapter(); adapter.mode = 'codex';
+for (let i = 0; i < 33; i++) {
+  const id = 'existing-' + i, path = join(directory, id + '.jsonl');
+  writeFileSync(path, JSON.stringify({ type: 'session_meta', payload: { id } }) + '\n' + JSON.stringify({ type: 'event_msg', timestamp: new Date().toISOString(), payload: { type: 'task_started', turn_id: 'turn-' + i } }) + '\n');
+  adapter.threads.set(id, { id, path, name: i === 0 ? '已有项目 · 正在完善监测面板' : `旧任务 ${String(i).padStart(2, '0')}`, cwd: 'C:\\项目\\已有工作', model: 'original-model', updatedAt: Date.now() / 1000, status: { type: 'notLoaded' }, turns: [{ id: 'turn-' + i, status: 'interrupted' }] });
+}
+adapter.readThreadSummary = id => adapter.readThread(id);
+adapter.listThreads = async ({ searchTerm, cursor, archived }) => {
+  const all = [...adapter.threads.values()].filter(t => !searchTerm || t.name.includes(searchTerm));
+  const data = archived ? all.slice(-1) : all, offset = Number(cursor || 0);
+  return { data: data.slice(offset, offset + 30), nextCursor: offset + 30 < data.length ? String(offset + 30) : null };
+};
+const supervisor = new Supervisor({ store, adapter }), http = createDashboardServer(supervisor, { port: 0 });
+const address = await http.listen(); supervisor.start();
+const checks = [], errors = [], latencies = []; let browser, taskId;
+try {
+  browser = await chromium.launch({ executablePath, headless: true });
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1440, height: 1020 } }); context.setDefaultTimeout(10000);
+  const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+  await page.goto(pathToFileURL(address.launchPath).href); await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#existing-tasks').click(); await page.locator('.existing-row').first().waitFor();
+  assert.equal(await page.locator('.existing-row').count(), 30); await page.locator('#existing-more').click();
+  await page.waitForFunction(() => document.querySelectorAll('.existing-row').length === 33); checks.push('existing conversations list, pagination and local-file launch');
+  await page.locator('#existing-search').fill('已有项目'); await page.locator('#existing-refresh').click();
+  await page.waitForFunction(() => document.querySelectorAll('.existing-row').length === 1);
+  await page.locator('.existing-row button').click(); await page.locator('#observation-toolbar').waitFor({ state: 'visible' });
+  assert.equal(store.tasks().length, 1); taskId = store.tasks()[0].id;
+  assert.equal(adapter.sent.length, 0); assert.equal(await page.locator('#detail-name').innerText(), '已有项目 · 正在完善监测面板');
+  checks.push('search and one-click attach without ID, directory or new prompt');
+  await page.locator('#existing-tasks').click(); await page.locator('.existing-row button').filter({ hasText: '查看监测' }).click();
+  assert.equal(store.tasks().length, 1); checks.push('duplicate attach opens existing monitor');
+  const append = (type, extra = {}) => appendFileSync(adapter.threads.get('existing-0').path, JSON.stringify({ type: 'event_msg', timestamp: new Date().toISOString(), payload: { type, turn_id: 'turn-0', ...extra } }) + '\n');
+  await page.locator('[data-detail="output"]').click();
+  for (let i = 0; i < 5; i++) {
+    const message = `原会话的第 ${i + 1} 次输出已经到达，正在继续完善工作。`, start = performance.now();
+    append('item_completed', { item: { type: 'AgentMessage', content: [{ type: 'Text', text: message }] } });
+    await page.waitForFunction(text => document.querySelector('#latest-output').textContent === text, message);
+    latencies.push(performance.now() - start);
+  }
+  assert(Math.max(...latencies) < 3000); checks.push('five real filesystem-to-SSE-to-browser updates within three seconds');
+  append('task_complete', { error: { message: 'HTTP 503：上游暂时不可用。' } });
+  await page.waitForFunction(() => document.querySelector('#detail-status').textContent === '记录了异常');
+  await page.waitForFunction(() => Number(document.querySelector('#metric-alerts').textContent) > 0); assert.equal(adapter.sent.length, 0);
+  checks.push('explicit failure is visible and raises an alert without sending messages');
+  await page.locator('#observation-toggle').click();
+  await page.waitForFunction(() => document.querySelector('#detail-status').textContent === '已停止监测');
+  assert.equal(adapter.interrupted, undefined); checks.push('stop monitoring never interrupts the original conversation');
+  await page.locator('#observation-toggle').click(); await page.reload(); await page.locator('#observation-toolbar').waitFor({ state: 'visible' });
+  checks.push('reload restores existing monitoring selection');
+  await page.locator('[data-detail="timeline"]').click();
+  await page.locator('.timeline-event').first().waitFor();
+  mkdirSync('docs/assets', { recursive: true });
+  await page.screenshot({ path: 'docs/assets/existing-monitor.png', fullPage: true });
+  await page.locator('#existing-tasks').click(); await page.locator('#existing-search').fill(''); await page.locator('#existing-refresh').click();
+  await page.waitForFunction(() => document.querySelectorAll('.existing-row').length === 30);
+  await page.screenshot({ path: 'docs/assets/existing-picker.png', fullPage: true });
+  await page.locator('#existing-archive').selectOption('true'); await page.waitForFunction(() => document.querySelectorAll('.existing-row').length === 1);
+  checks.push('archived conversation filter');
+  await page.locator('[aria-label="关闭会话列表"]').click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: 'docs/assets/existing-monitor-narrow.png', fullPage: true });
+  checks.push('390px layout has no horizontal overflow');
+  await page.locator('#observation-adopt').click(); assert.equal(adapter.sent.length, 0);
+  await page.locator('#adopt-confirm').check(); await page.locator('#adopt-message').fill('继续这个隔离测试任务');
+  await page.locator('#adopt-submit').click(); await page.locator('#managed-toolbar').waitFor({ state: 'visible' });
+  assert.equal(adapter.sent.length, 1); assert.equal(adapter.sent[0].threadId, 'existing-0');
+  assert.equal(store.task(taskId).model, 'original-model'); checks.push('explicit handover resumes same conversation and preserves model');
+  assert.deepEqual(errors, []);
+  const sorted = [...latencies].sort((a, b) => a - b);
+  const report = { testedAt: new Date().toISOString(), checks, samples: latencies.length, latencyMs: latencies.map(n => Math.round(n)), p95Ms: Math.round(sorted.at(-1)), browserErrors: errors, scope: 'isolated history fixtures; real filesystem/HTTP/SSE/browser; no paid requests' };
+  writeFileSync('docs/validation/existing-ui-report.json', JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
+} catch (error) { console.error(JSON.stringify({ directory, message: error.message, errors })); throw error; }
+finally { await browser?.close(); await supervisor.close(); await http.close(); store.close(); }

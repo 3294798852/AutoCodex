@@ -24,7 +24,7 @@ flowchart LR
 
 使用官方 `initialize`、`thread/start/read/resume`、`turn/start/interrupt` 及运行事件。默认 stdio，无额外网络暴露。适配器处理协议细节，状态机不直接访问 UI 或 Codex 私有 SQLite。CLI 版本固定作为兼容性基线，启动/诊断可检查可用性。
 
-公开 app-server 仍标记实验性，因此交付定位为可验证的本机首版，不能承诺所有未来 Codex 版本兼容。后续如需要桌面内已有活动会话监护，必须验证共享 app-server 的受支持控制端点及会话所有权，不能凭历史文件推断。
+公开 app-server 仍标记实验性，兼容性以验证版本为准。0.5.0 使用 thread/list、thread/read 的元数据发现已有会话，再以有界 JSONL 增量读取获得活动证据；独立服务 notLoaded/历史 interrupted 不作为桌面终态。观察模式与控制模式明确分离，详细见 [已有会话设计](14-existing-sessions.md)。未来直接控制桌面活动会话仍需验证共享端点及所有权。
 
 ### ADR-003：零运行依赖
 

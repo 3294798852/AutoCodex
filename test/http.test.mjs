@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createDashboardServer } from '../src/server/http.mjs';
 import { JsonlRpcClient } from '../src/adapters/rpc-client.mjs';
@@ -17,6 +17,31 @@ async function fixture(t) {
   });
   return { ...h, http, address, connection, request };
 }
+
+test('existing conversation API lists and monitors without sending; cross-site and plugin control stay denied', async t => {
+  const h = await fixture(t), id = 'external-http', path = join(h.directory, 'rollout.jsonl');
+  const meta = { id, path, name: 'HTTP existing', cwd: h.directory, updatedAt: Date.now() / 1000 };
+  writeFileSync(path, JSON.stringify({ type: 'session_meta', payload: { id } }) + '\n');
+  h.adapter.listThreads = async () => ({ data: [meta], nextCursor: null });
+  h.adapter.readThreadSummary = async () => meta;
+  assert.equal((await h.request('/api/v1/threads', { plugin: true })).status, 403);
+  assert.equal((await h.request('/api/v1/threads', { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+  const listed = await (await h.request('/api/v1/threads')).json(); assert.equal(listed.data[0].id, id);
+  const post = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threadId: id }) };
+  assert.equal((await h.request('/api/v1/observations', { ...post, plugin: true })).status, 403);
+  const added = await h.request('/api/v1/observations', post); assert.equal(added.status, 201);
+  const task = await added.json(); assert.equal(task.controlMode, 'observe'); assert.equal(h.adapter.sent.length, 0);
+  const duplicate = await (await h.request('/api/v1/observations', post)).json(); assert.equal(duplicate.id, task.id);
+  const forbidden = await h.request(`/api/v1/tasks/${task.id}/control`, { ...post, body: '{"action":"continue"}' }); assert.equal(forbidden.status, 409);
+  const abort = new AbortController(), stream = await h.request('/api/v1/events', { signal: abort.signal }), reader = stream.body.getReader();
+  try {
+    await reader.read();
+    appendFileSync(path, JSON.stringify({ type: 'event_msg', timestamp: new Date(h.now()).toISOString(), payload: { type: 'task_complete', error: { message: 'HTTP 503 fixture' } } }) + '\n');
+    await h.supervisor.existing.poll(task.id);
+    const chunk = new TextDecoder().decode((await reader.read()).value); assert(chunk.includes('observed_error'));
+    assert.equal(h.adapter.sent.length, 0);
+  } finally { await reader.cancel(); abort.abort(); }
+});
 
 test('loopback API enforces authentication, Origin, Host, body limit and plugin scope', async t => {
   const h = await fixture(t);

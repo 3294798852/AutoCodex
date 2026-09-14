@@ -51,3 +51,9 @@ thread/start 的 dynamicTools 注册 autocodex_recycle；item/tool/call 请求�
 
 记录：[真实批准报告](validation/dnd-codex-report.json)、[原生回收站及还原报告](validation/recycle-report.json)。本机夹具不覆盖真实付费模型选工具的概率、复杂客户端表单或未来 CLI 兼容性。
 - 真实模型生成测试会产生上游请求；首版默认验证使用演练/协议夹具及真实 CLI 无生成握手，后续集成结果单独记载。
+
+## 0.5 已有会话观察实证（2026-09-14）
+
+官方 https://learn.chatgpt.com/docs/app-server#threads 明确 read 不加载/订阅、loaded/list 为当前服务内存；list 可按提供方、来源、标题、归档分页。本机 Windows CLI 0.153.4 daemon version 报 only supported on Unix platforms。只读本项目活动会话时，独立 app-server 返回 notLoaded、回合 interrupted，证明不能直接当桌面终态。
+
+隔离两个 Codex 进程实测：观察者从列表发现原进程正在执行的会话；原始日志包含 task_started、item_completed/AgentMessage、task_complete；观察者 loaded/list 始终为空，停止观察不 interrupt，原进程正常完成。HTTP 503 结束写作 task_complete + error（并非独立 error 事件）；解析器已覆盖这一真实形态，显示 error 并告警一次，最终 token_count 不抹除失败。报告 docs/validation/existing-codex-report.json；2 次本机上游请求，0 付费请求。
