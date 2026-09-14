@@ -55,6 +55,7 @@ export class JsonlRpcClient extends EventEmitter {
     });
     const initialization = await this.request('initialize', {
       clientInfo: { name: 'autocodex_guard', title: 'AutoCodex Guard', version: VERSION },
+      capabilities: { experimentalApi: true },
     });
     this.notify('initialized', {});
     this.connected = true;
@@ -93,7 +94,18 @@ export class JsonlRpcClient extends EventEmitter {
   }
 
   notify(method, params) { this.send({ method, params }); }
-  respond(id, result) { this.send({ id, result }); }
+  respond(id, result) {
+    return new Promise((resolve, reject) => {
+      if (!this.proc || this.proc.exitCode !== null || !this.proc.stdin.writable) {
+        reject(new RpcError('Codex 批准通道不可写', { uncertain: true })); return;
+      }
+      const timeout = setTimeout(() => reject(new RpcError('批准写入超时，结果未知', { uncertain: true })), 5000);
+      this.proc.stdin.write(`${JSON.stringify({ id, result })}\n`, error => {
+        clearTimeout(timeout);
+        if (error) reject(new RpcError(error.message, { uncertain: true })); else resolve();
+      });
+    });
+  }
   reject(id, message = '此客户端不支持该请求') { this.send({ id, error: { code: -32601, message } }); }
 
   fail(error) {

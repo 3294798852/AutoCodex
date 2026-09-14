@@ -66,7 +66,17 @@ try {
     failureMode = scenario.failure;
     const before = requests;
     const silent = failureMode === 'silent_stream';
-    const task = await supervisor.createTask({ name: `Local ${failureMode} test / ${strategy}`, prompt: 'This is a local transport test. Reply with OK; do not use tools or change files.', cwd: workspace, sandbox: 'read-only', model: 'autocodex-fixture', policy: { strategy, baseDelayMs: 100, maxDelayMs: 200, rateLimitDelayMs: 100, jitterRatio: 0, ...(silent ? { noOutputTimeoutMs: 1500 } : {}) } });
+    const task = await supervisor.createTask({ name: `Local ${failureMode} test / ${strategy}`, prompt: 'This is a local transport test. Reply with OK; do not use tools or change files.', cwd: workspace, sandbox: 'read-only', model: 'autocodex-fixture', policy: { strategy, baseDelayMs: 100, maxDelayMs: 200, rateLimitDelayMs: 100, jitterRatio: 0 } });
+    if (silent) {
+      // Measure an established silent stream; CLI startup can exceed the short fixture deadline.
+      const readyBy = Date.now() + 10000;
+      while (requests === before && Date.now() < readyBy) await new Promise(resolve => setTimeout(resolve, 25));
+      assert.equal(requests - before, 1, 'Silent stream fixture must establish one model request');
+      const active = store.task(task.id);
+      active.outputMonitor.sinceAt = Date.now();
+      store.saveTask(active);
+      await supervisor.control(task.id, 'policy', { policy: { noOutputTimeoutMs: 1500 } });
+    }
     const final = await waitTask(task.id, silent ? 'output_blocked' : strategy === 'manual' ? 'needs_attention' : 'failed');
     assert.equal(final.totalAutoAttempts, scenario.continuations ?? 2);
     assert.equal(final.threadChain.length, strategy === 'manual' || silent ? 1 : 2);

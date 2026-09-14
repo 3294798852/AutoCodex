@@ -1,0 +1,14 @@
+{
+  "testedAt": "2026-09-14T10:46:56.345Z",
+  "realCodex": "Codex Desktop/0.153.4 (Windows 10.0.26200; x86_64) dumb (autocodex_guard; 0.4.0)",
+  "dynamicRegistration": true,
+  "dynamicToolRpc": true,
+  "nativeRecycle": true,
+  "fixtureRestored": true,
+  "toolResultAccepted": true,
+  "realCommandApproval": true,
+  "commandExecuted": "git status --short",
+  "automaticApprovals": 2,
+  "localRequests": 4,
+  "paidModelRequests": 0
+}

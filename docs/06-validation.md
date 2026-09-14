@@ -1,5 +1,23 @@
 # AutoCodex 验证报告
 
+## 0.4.0 免打扰权限自动批准验证
+
+日期：2026-09-14；Windows 11（10.0.26200）；Node.js 24.18.0；Codex CLI 0.153.4。
+
+- **114 项自动测试全部通过**，无失败或跳过；42 个 JavaScript 模块和 JSON 清单检查通过。新增 30 项免打扰测试，保留原 84 项恢复、路径、存储和接口测试。
+- 五项独立开关/总开关、严格类型与版本冲突、重启保留/离线目录恢复、完整原始请求、复合命令、未知参数、工作区外目录/联接点、文件补丁、文件权限子集、确认表单和普通问题均有覆盖。
+- 验证 30 次重复批准只响应一次；停机/暂停/旧回合/无输出锁定不自动批准；存储失败不发送；异步管道失败、回收中停止/断开/请求已解决、重启时发现 sending 保持人工核对；迟到失败和完成不会解除锁或触发自动换会话。
+- 真实 CLI 与隔离本机 SSE 上游验证：回收工具注册、item/tool/call、自动批准、文件入回收站与结果回传，以及实际 `git status --short` 单次批准和成功执行。测试文件从回收站还原并核对；4 次本机模型协议请求、0 付费请求。[实际报告](validation/dnd-codex-report.json)。
+- 原生 Windows 回收测试：中文空格文件和文件夹各一个进入真实回收站，再还原核对内容；无永久删除兜底。[回收报告](validation/recycle-report.json)。
+- 原八组真实故障注入全部回归通过：503、截断 SSE、容量不足、429、402、新会话立即失败和静默保护保持原行为。[0.4 故障报告](validation/codex-fault-v04-report.json)。静默夹具在真实请求已建立后开始 1.5 秒测试期限，避免把 CLI 启动耗时误计为已建立的静默连接；默认十分钟期限另有受控时钟边界测试。
+- 浏览器 15 项检查通过，零页面异常：五开关、全开/全关、保存刷新、目录、多页 SSE/陈旧写入冲突、已有请求保持人工、后续自动批准、关闭后等待/拒绝、记录、时间线与 1500×1100/390×844 布局。截图已人工查看，无横向溢出。[界面报告](validation/dnd-ui-report.json)、[桌面](assets/dnd-settings.png)、[窄屏](assets/dnd-settings-narrow.png)。
+- 20 次本机墙钟样本：决策到记录 p50 6.0 ms、p95 7.9 ms、最大 8.7 ms；请求到浏览器计数更新 p50 61.0 ms、p95 88.6 ms、最大 154.2 ms。前者包含同步持久化，不含实际系统操作；后者包含本机 SSE 和浏览器轮询观察。不是付费上游或长期满载性能承诺。
+- 插件 manifest 与随附技能通过官方本机校验器。发布包按 SHA-256 清单校验全部成员，包含原生回收脚本、插件、运行服务和文档，不含运行数据/凭据。Windows PowerShell 5.1 下，中文/空格搬迁、免打扰初始全关/保存后重启、Codex 自动发现/中文手动路径、独立数据目录、插件路径重生成及正常关闭通过。[发布运行报告](validation/release-v04-runtime-report.json)。ZIP 最终清单以包内 SHA256SUMS.json 为准。
+
+本次实际执行系统命令仅为只读 Git 查询；系统服务变更等通过分类和响应测试，没有在开发电脑执行破坏性系统管理操作。文件权限及结构化确认分支按本机 schema 和行为测试验证，尚未覆盖所有真实客户端表单。全桌面/UAC 自动点击、远程/手机、非 Windows 回收后端、付费上游长期任务不在本次完成范围。
+
+复现：`npm test`、`npm run check`、`npm run smoke:dnd`、`npm run smoke:recycle`、`npm run smoke:faults`、`npm run smoke:ui-dnd`；开发机 Playwright 设置见 07-development.md。打包后运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -Startup -WithCodex`。
+
 ## 0.3.0 使用说明、安装发现与发布验证
 
 日期：2026-09-13；Windows PC；Node.js 24.18.0；Codex CLI 0.153.4。下方 0.2.0 部分保留恢复规则的历史证据，本节记录新增安装与发布能力。

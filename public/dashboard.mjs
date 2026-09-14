@@ -45,7 +45,7 @@ async function readDetail() {
 }
 
 function renderState(next) {
-  state = next;
+  state = next; renderDnd();
   $('#app-version').textContent = `v${state.version}`;
   if (!selectedId || !state.tasks.some(task => task.id === selectedId)) selectedId = state.tasks[0]?.id;
   $('#app').hidden = false; $('#auth-screen').hidden = true;
@@ -241,6 +241,7 @@ function renderAlerts() {
 }
 
 function renderApprovals(task) {
+  $('#dnd-task-info').textContent = '免打扰自动处理 ' + (task.totalAutoApprovals || 0) + ' 次 · 回收站工具' + (task.recycleToolAvailable ? '已接入' : state.mode === 'demo' ? '仅演练' : '需在本版本新建会话接入');
   const requests = state.approvals.filter(request => request.taskId === task.id);
   const signature = `${task.id}:${requests.map(request => request.id).join(',')}`;
   if (signature === approvalSignature) return;
@@ -248,6 +249,8 @@ function renderApprovals(task) {
   const list = $('#approval-list'); list.replaceChildren();
   for (const request of requests) {
     const form = element('form', 'approval-card'); form.append(element('h3', '', '需要你的决定'));
+    if (request.automation?.reason) form.append(element('p', 'settings-note', '保留人工：' + request.automation.reason));
+    if (request.previewLimited) form.append(element('p', 'settings-note', '此预览含脱敏或省略内容，请先核对原始操作再决定是否批准。'));
     form.append(element('p', '', request.params.reason || request.params.message || 'Codex 正在等待此项操作。'));
     const questionFields = new Map(), contentFields = new Map();
     const isQuestion = request.method.endsWith('requestUserInput');
@@ -268,17 +271,17 @@ function renderApprovals(task) {
       }
     }
     if (!isQuestion) {
-      const preview = request.params.command || request.item?.command || JSON.stringify(request.params.permissions || request.item?.changes || request.params, null, 2);
+      const preview = request.method === 'item/tool/call' ? '移入回收站：\n' + JSON.stringify(request.params.arguments?.paths || [], null, 2) : request.params.command || request.item?.command || JSON.stringify(request.params.permissions || request.item?.changes || request.params, null, 2);
       const details = element('details'); details.open = !!request.params.command;
       details.append(element('summary', '', '查看具体操作'), element('pre', '', preview)); form.append(details);
       if (isElicitation && request.params.mode === 'url') form.append(element('p', 'settings-note', '这是外部授权流程，请核对具体操作中的链接并在原服务完成授权。'));
     }
     const buttons = element('div', 'approval-buttons');
-    const choices = isQuestion ? [['answered', '提交答案']] : [['accept', isElicitation ? '确认' : '仅批准本次'], ['decline', '拒绝']];
+    const choices = isQuestion ? [['answered', '提交答案']] : [['accept', isElicitation ? '确认' : '仅批准本次'], ['decline', '拒绝'], ...(request.method === 'item/permissions/requestApproval' ? [] : [['cancel', '取消']])];
     for (const [decision, title] of choices) {
       if (!isQuestion && request.params.availableDecisions && !request.params.availableDecisions.includes(decision)) continue;
       const button = element('button', `button compact${decision === 'decline' ? '' : ' secondary'}`, title); button.type = 'submit'; button.value = decision; button.name = 'decision';
-      if (decision === 'decline') button.formNoValidate = true;
+      if (decision === 'decline' || decision === 'cancel') button.formNoValidate = true;
       buttons.append(button);
     }
     form.append(buttons);
@@ -341,6 +344,7 @@ async function updateCodexPath(save) {
 }
 
 function fillSettings() {
+  renderDnd();
   if (!state) return;
   const policy = state.defaultPolicy;
   $('#setting-strategy').value = policy.strategy; $('#setting-attempts').value = policy.maxAutoAttempts;
@@ -473,4 +477,53 @@ async function initialize() {
   }
 }
 setInterval(() => { $('#clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); renderRetry(); }, 1000);
+
+const dndKeys = ['outsideWorkspace', 'commonCommands', 'recycleDeletes', 'systemTools', 'confirmationPrompts'];
+let dndBusy = false;
+function renderDnd() {
+  if (!state?.dnd) return;
+  const dnd = state.dnd, settings = dnd.settings;
+  for (const key of dndKeys) { const input = $('#dnd-' + key); input.checked = settings[key]; input.disabled = dndBusy || key === 'recycleDeletes' && !dnd.recycleSupported; }
+  const allEnabled = dndKeys.filter(key => key !== 'recycleDeletes' || dnd.recycleSupported).every(key => settings[key]);
+  $('#dnd-all').checked = allEnabled;
+  $('#dnd-all').indeterminate = dnd.enabledCount > 0 && !allEnabled;
+  $('#dnd-all').disabled = dndBusy;
+  $('#dnd-all-label').textContent = allEnabled ? '全部关' : '全部开';
+  $('#dnd-count').textContent = '已开启 ' + dnd.enabledCount + ' / 5';
+  $('#dnd-approved').textContent = dnd.autoApproved;
+  $('#dnd-platform').textContent = dnd.recycleSupported ? 'Windows 回收站可用' : '当前平台未提供回收站';
+  $('#dnd-roots-save').disabled = dndBusy;
+  if (!$('#dnd-roots').dataset.dirty) $('#dnd-roots').value = settings.outsideRoots.join('\n');
+  const records = $('#dnd-history'); records.replaceChildren();
+  if (!dnd.recent.length) records.append(element('p', 'dnd-hint', '还没有批准记录。'));
+  for (const entry of dnd.recent.slice(0, 12)) {
+    const row = element('div', 'dnd-history-row');
+    const source = entry.source === 'automatic' ? '自动' : entry.source === 'manual' ? '人工' : '待处理';
+    const status = { answered: '已处理', uncertain: '结果待核对', pending: '等待决定', sending: '处理中', expired: '已失效', resolved: '已解决' }[entry.status] || entry.status;
+    row.append(element('strong', '', source + ' · ' + status), element('time', '', time(entry.createdAt)));
+    const task = state.tasks.find(task => task.id === entry.taskId);
+    row.append(element('small', '', (task?.name || '历史任务') + ' · ' + (entry.automation?.reason || '用户决定')));
+    records.append(row);
+  }
+  const metric = $('#dnd-monitor-summary');
+  if (metric) metric.textContent = '免打扰 ' + dnd.enabledCount + '/5 · 自动处理 ' + dnd.autoApproved + ' 次';
+}
+async function saveDnd(changes) {
+  if (dndBusy || !state?.dnd) return;
+  const revision = state.dnd.settings.revision;
+  dndBusy = true; renderDnd(); $('#dnd-save-status').textContent = '正在保存…';
+  try {
+    const result = await api('/dnd', { ...changes, revision });
+    state.dnd = result;
+    if (changes.outsideRoots) delete $('#dnd-roots').dataset.dirty;
+    $('#dnd-save-status').textContent = '已保存，即时生效 · 已显示的待处理请求保持人工决定';
+    await refresh();
+  } catch (error) { $('#dnd-save-status').textContent = error.message; toast(error.message, true); await refresh().catch(() => {}); }
+  finally { dndBusy = false; renderDnd(); }
+}
+for (const key of dndKeys) $('#dnd-' + key).addEventListener('change', event => { void saveDnd({ [key]: event.target.checked }); });
+$('#dnd-all').addEventListener('change', event => { const enable = event.target.checked; void saveDnd(Object.fromEntries(dndKeys.map(key => [key, enable && (key !== 'recycleDeletes' || state.dnd.recycleSupported)]))); });
+$('#dnd-roots').addEventListener('input', () => { $('#dnd-roots').dataset.dirty = 'true'; });
+$('#dnd-roots-form').addEventListener('submit', event => { event.preventDefault(); void saveDnd({ outsideRoots: $('#dnd-roots').value.split('\n').map(value => value.trim()).filter(Boolean) }); });
+
 void initialize();

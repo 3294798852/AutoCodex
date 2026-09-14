@@ -1,3 +1,4 @@
+import { RECYCLE_TOOL } from '../core/recycle.mjs';
 import { EventEmitter } from 'node:events';
 import { JsonlRpcClient } from './rpc-client.mjs';
 import { resolveCodex, describeCodex } from './codex-discovery.mjs';
@@ -33,7 +34,10 @@ export class CodexAdapter extends EventEmitter {
       this.state.installation = describeCodex(runtime);
       const client = new JsonlRpcClient({ ...runtime, env: { ...runtime.env, ...this.environment }, args: [...runtime.args, 'app-server', '--listen', 'stdio://'], timeoutMs: this.timeoutMs });
       this.client = client;
-      client.on('notification', notification => this.emit('notification', notification));
+      client.on('notification', notification => {
+        if (notification.method === 'serverRequest/resolved') this.requests.delete(String(notification.params?.requestId));
+        this.emit('notification', notification);
+      });
       client.on('request', request => {
         this.requests.set(String(request.id), request);
         this.emit('request', request);
@@ -63,13 +67,13 @@ export class CodexAdapter extends EventEmitter {
   config(task) {
     return { cwd: task.cwd, ...(task.model ? { model: task.model } : {}),
       ...(task.modelProvider ? { modelProvider: task.modelProvider } : {}),
-      approvalPolicy: 'on-request', sandbox: task.sandbox || 'workspace-write' };
+      approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: task.sandbox || 'workspace-write' };
   }
   async createThread(task) {
     await this.connect();
-    const result = await this.client.request('thread/start', { ...this.config(task), serviceName: 'autocodex_guard' });
+    const result = await this.client.request('thread/start', { ...this.config(task), serviceName: 'autocodex_guard', ...(process.platform === 'win32' ? { dynamicTools: [RECYCLE_TOOL] } : {}) });
     this.loaded.add(result.thread.id);
-    return { ...result.thread, model: result.model || result.thread.model, modelProvider: result.modelProvider || result.thread.modelProvider };
+    return { ...result.thread, recycleToolAvailable: process.platform === 'win32', model: result.model || result.thread.model, modelProvider: result.modelProvider || result.thread.modelProvider };
   }
   async readThread(threadId) {
     await this.connect();
@@ -90,10 +94,10 @@ export class CodexAdapter extends EventEmitter {
     if (!this.client?.connected) throw new Error('Codex 已断开，无法确认远端中断');
     return this.client.request('turn/interrupt', { threadId, turnId });
   }
-  respond(requestId, result) {
+  async respond(requestId, result) {
     const key = String(requestId);
     if (!this.requests.has(key) || !this.client?.connected) throw new Error('该批准请求已失效');
-    this.client.respond(this.requests.get(key).id, result);
+    await this.client.respond(this.requests.get(key).id, result);
     this.requests.delete(key);
   }
   reject(requestId, message) {

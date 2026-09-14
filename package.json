@@ -1,10 +1,12 @@
 {
   "name": "autocodex-guard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Local Codex recovery supervisor and monitoring panel",
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "start": "node src/main.mjs",
     "demo": "node src/main.mjs --demo",
@@ -13,6 +15,9 @@
     "smoke:codex": "node scripts/codex-smoke.mjs",
     "diagnose:codex": "node src/main.mjs --diagnose-codex",
     "smoke:faults": "node scripts/codex-fault-smoke.mjs",
+    "smoke:dnd": "node scripts/dnd-codex-smoke.mjs",
+    "smoke:recycle": "node scripts/recycle-smoke.mjs",
+    "smoke:ui-dnd": "node scripts/ui-dnd-smoke.mjs",
     "package": "node scripts/package-plugin.mjs"
   }
 }

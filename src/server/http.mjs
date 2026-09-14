@@ -178,6 +178,8 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
       if (req.method === 'POST' && ack) { await body(req); send(res, 200, supervisor.acknowledge(ack[1])); return; }
       const approval = path.match(/^\/api\/v1\/approvals\/([a-zA-Z0-9_-]+)\/respond$/);
       if (req.method === 'POST' && approval) { send(res, 200, await supervisor.respondApproval(approval[1], await body(req))); return; }
+      if (req.method === 'GET' && path === '/api/v1/dnd') { send(res, 200, supervisor.dndSnapshot()); return; }
+      if (req.method === 'POST' && path === '/api/v1/dnd') { send(res, 200, supervisor.setDnd(await body(req))); return; }
       if (req.method === 'POST' && path === '/api/v1/settings') { const input = await body(req); send(res, 200, supervisor.setDefaults(input.policy || {})); return; }
       if (req.method === 'POST' && path === '/api/v1/shutdown') {
         await body(req); assert(typeof onShutdown === 'function', '此运行环境不支持关闭接口', 405);

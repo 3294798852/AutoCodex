@@ -11,7 +11,7 @@ try {
     if (-not $inventoryEntry) { throw 'Missing hash inventory' }
     $reader = [System.IO.StreamReader]::new($inventoryEntry.Open())
     try { $inventory = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
-    foreach ($required in @('.codex-plugin/plugin.json', '.mcp.json', 'scripts/bridge.mjs', 'runtime/src/main.mjs', 'runtime/src/adapters/codex-discovery.mjs', 'runtime/src/server/codex-settings.mjs', 'Start-AutoCodex.ps1', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'docs/09-user-guide.md', 'docs/10-installation-design.md')) {
+    foreach ($required in @('.codex-plugin/plugin.json', '.mcp.json', 'scripts/bridge.mjs', 'runtime/src/main.mjs', 'runtime/src/adapters/codex-discovery.mjs', 'runtime/src/server/codex-settings.mjs', 'runtime/src/core/dnd-policy.mjs', 'runtime/src/core/recycle.mjs', 'runtime/src/native/recycle.ps1', 'Start-AutoCodex.ps1', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'docs/09-user-guide.md', 'docs/10-installation-design.md', 'docs/12-dnd-requirements.md', 'docs/13-dnd-implementation.md')) {
         if (-not $archive.GetEntry($prefix + $required)) { throw "Missing archive member: $required" }
     }
     $reader = [System.IO.StreamReader]::new($archive.GetEntry($prefix + '.mcp.json').Open())
@@ -79,10 +79,20 @@ if ($Startup -or $WithCodex) {
     try {
         $state = Call-Api $connection '/state'
         if ($state.mode -ne 'demo' -or $state.version -ne $version -or $state.defaultPolicy.errorWindowMs -ne 300000 -or $state.defaultPolicy.noOutputTimeoutMs -ne 600000) { throw 'Packaged runtime defaults/version are incorrect' }
+        if ($state.dnd.enabledCount -ne 0 -or -not $state.dnd.recycleSupported) { throw 'Packaged DND defaults/support are incorrect' }
+        $updatedDnd = Call-Api $connection '/dnd' @{ revision = 0; commonCommands = $true }
+        if ($updatedDnd.enabledCount -ne 1 -or $updatedDnd.settings.revision -ne 1) { throw 'Packaged DND settings did not save' }
         $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $packageDirectory '.mcp.json') | ConvertFrom-Json
         if ($manifest.mcpServers.'autocodex-guard'.args[0] -ne (Join-Path $packageDirectory 'scripts\bridge.mjs')) { throw 'Plugin relocation configuration did not update' }
         if ($manifest.mcpServers.'autocodex-guard'.env.AUTOCODEX_CONNECTION_FILE -ne (Join-Path $demoData 'connection.json')) { throw 'Custom connection path was not configured' }
         $report.demoStartup = 'passed'; $report.unicodeRelocation = 'passed'; $report.customDataDirectory = 'passed'; $report.pluginReconfiguration = 'passed'
+    } finally { Stop-ServiceUnderTest $demoData $connection }
+    Invoke-Launcher 'Start-AutoCodex.ps1' @('-Demo', '-Port', (Get-FreePort), '-NoBrowser', '-DataDir', $demoData) | Out-Null
+    $connection = Read-Connection $demoData
+    try {
+        $dnd = Call-Api $connection '/dnd'
+        if (-not $dnd.settings.commonCommands -or $dnd.settings.revision -ne 1 -or $dnd.enabledCount -ne 1) { throw 'Packaged DND settings lost on restart' }
+        $report.dndDefaults = 'passed'; $report.dndPersistence = 'passed'; $report.recycleEntryPackaged = 'passed'
     } finally { Stop-ServiceUnderTest $demoData $connection }
     $report.shutdown = 'passed'
 }

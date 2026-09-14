@@ -82,3 +82,11 @@ SSE 写入返回 false 时表示背压，等待 drain 后续发最新快照；10
 ## 4. 手机扩展边界
 
 第一版 HTTP `/api/v1` 与 SSE 可复用。第二期需另外设计 PC/手机配对、TLS、访问撤销、远程只读权限及系统推送；当前不监听局域网，也不把本机 token 当作公网认证方案。
+
+## 5. 0.4 免打扰批准扩展
+
+`dnd-policy.mjs` 独立处理五类开关、目录校验、命令结构和确认表单；`Supervisor` 在任务串行队列中核实会话/回合/连接、去重、持久化决定，再经适配器回应。与恢复分类器分开，工具请求本身不触发续发计数。全局设置存于 SQLite meta，使用 revision 检查并发修改；原始请求仅保存在内存，批准审计保存脱敏预览。
+
+批准状态为 pending → sending → answered；已解决/过期分别为 resolved/expired，写入异常和执行结果不明为 uncertain。`approvalBlocked` 锁定继续与自动换会话，跨迟到终态、重启保持；只有用户核对后的手动接续清除。已显示的 pending 请求不因开关变化而自动处理。
+
+Windows 新建会话注册动态工具 autocodex_recycle，`recycle.mjs` 校验目标后通过 stdin JSON 调用 `src/native/recycle.ps1`。原生 IFileOperation 仅允许回收语义并报告完成清单，不降级为永久删除。停止、断线或请求解决可取消本服务启动的原生进程。前后端复用原有 HTTP/SSE；后续适配其他平台只需替换回收后端和平台能力描述。详见 [免打扰方案](13-dnd-implementation.md)。

@@ -40,7 +40,7 @@ let exiting = false;
 async function shutdown(code = 0) {
   if (exiting) return;
   exiting = true;
-  try { await http.close(); await supervisor.close(); store.close(); }
+  try { await Promise.all([supervisor.close(), http.close()]); store.close(); }
   finally { process.exitCode = code; }
 }
 

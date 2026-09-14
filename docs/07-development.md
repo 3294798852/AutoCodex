@@ -6,6 +6,7 @@
 src/core/       错误归一化、恢复决策、有效输出计时、事务存储、监护编排、交接
 src/adapters/   Codex JSONL/stdio 与故障演练
 src/server/     本机认证、HTTP API、SSE 与静态面板
+src/native/     Windows 回收站原生调用
 public/         中文原生网页界面
 plugins/        可校验的 Codex 插件、MCP 桥和技能
 test/           行为、持久化、进程、API 与并发测试
@@ -14,6 +15,8 @@ docs/           分阶段设计、证据、运维和验收
 ```
 
 所有运行模块使用 Node.js 内置库。浏览器验证需要开发环境外部提供 Playwright 和浏览器；插件 manifest/skill 校验使用系统技能附带的 Python 校验器，仅开发阶段需要 PyYAML。
+
+0.4 Windows 回收站运行后端依赖系统自带 Windows PowerShell 与 Shell COM，无额外 npm 运行依赖。
 
 ## API v1
 
@@ -36,12 +39,18 @@ docs/           分阶段设计、证据、运维和验收
 | `GET /api/v1/history/:threadId` | 受管历史或已保存快照 |
 | `GET /api/v1/handoffs/:id` | 有界交接包 |
 | `POST /api/v1/approvals/:id/respond` | 显式批准/拒绝或回答问题 |
+| `GET /api/v1/dnd` | 免打扰设置、启用数、批准计数和近期记录，仅管理员 |
+| `POST /api/v1/dnd` | 更新开关/工作区外目录；必须附当前 revision，冲突返回 409 |
 | `POST /api/v1/alerts/:id/ack` | 确认告警，不恢复任务 |
 | `POST /api/v1/settings` | 后续新任务的默认恢复规则 |
 | `GET /api/v1/export` | 导出状态和最近 500 个事件 |
 | `POST /api/v1/shutdown` | 正常关闭服务，仅独立主程序支持 |
 
 接口输入限制为 64 KiB；错误返回 `{ error, code }` 和适当 HTTP 状态码。SSE 100 ms 合并推送、15 秒心跳，背压时等待 drain 并合并最新状态；10 秒无法排空才断开慢客户端。内部文本缓冲和指纹不随快照发送。首版无历史删除接口，数据库内事件保留；页面和导出默认取最近有限条数。
+
+免打扰更新示例：`{"revision":0,"commonCommands":true}`。字段为 outsideWorkspace、commonCommands、recycleDeletes、systemTools、confirmationPrompts 五个布尔值，以及最多 20 项绝对路径 outsideRoots。返回 settings、enabledCount、recycleSupported、autoApproved、recent；原始审批内容不会替换为脱敏内容发送给 Codex。reviewer=user、实验动态工具与具体批准载荷见 04-protocol-evidence.md。
+
+新增验证：`npm run smoke:dnd` 使用隔离 CODEX_HOME 和本机 SSE 测试上游，验证真实命令及动态回收工具；`npm run smoke:recycle` 对唯一临时文件/目录执行入回收站及还原；`npm run smoke:ui-dnd` 验证开关、多页面版本冲突、人工/自动批准、桌面/窄屏与 20 次墙钟延迟。后者用 AUTOCODEX_PLAYWRIGHT_MODULE 和可选 AUTOCODEX_BROWSER_PATH 指向开发机已有依赖。不要把开发测试入口分发为生产自动任务。
 
 0.2 policy 增加 `errorWindowMs`（默认 300000）和 `noOutputTimeoutMs`（默认 600000）；旧 policy 自动补默认值。`incident.recentErrors` 保存最近 3/5 次 `{at, outputSequence}`，`incident.match` 给出时间/输出条件，`attemptsWithoutOutput` 区别于累计 `autoAttempts`。`outputMonitor` 保存有效输出序号、时钟、用户等待区间和保护锁存；详见 08-recovery-policy-v2.md。
 

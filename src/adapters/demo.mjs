@@ -10,6 +10,7 @@ export const SCENARIOS = [
   { id: 'failover', name: '新会话接续成功', description: '旧会话反复失败，新会话完成工作' },
   { id: 'fallback_fails', name: '新会话立即失败', description: '新会话首轮报错，最终停止并告警' },
   { id: 'alternating', name: '交替错误达到上限', description: '不同错误交替出现，验证总次数保护' },
+  { id: 'dnd_approval', name: '免打扰自动批准', description: '演练常用命令批准：开关开启后自动完成' },
   { id: 'approval', name: '等待用户批准', description: '等待用户决定，不触发自动继续' },
   { id: 'healthy', name: '正常执行', description: '显示持续输出和正常完成' },
   { id: 'interrupted', name: '用户中断保护', description: '中断后停止自动恢复' },
@@ -73,10 +74,10 @@ export class DemoAdapter extends EventEmitter {
         : scenario === 'alternating' && thread.turns.length % 2 === 0
         ? { message: '演练：upstream request timed out', codexErrorInfo: 'other' } : streamError();
       this.later(() => finish('failed', error), this.stepMs * 2);
-    } else if (scenario === 'approval') {
+    } else if (['approval', 'dnd_approval'].includes(scenario)) {
       this.later(() => {
         if (!active()) return;
-        const request = { id: uid(), method: 'item/commandExecution/requestApproval', params: { threadId: thread.id, turnId: turn.id, itemId: uid(), command: '运行项目测试（演练）', reason: '演练人工批准流程', availableDecisions: ['accept', 'decline', 'cancel'] } };
+        const request = { id: uid(), method: 'item/commandExecution/requestApproval', params: { threadId: thread.id, turnId: turn.id, itemId: uid(), command: scenario === 'dnd_approval' ? 'npm test' : '运行项目测试（演练）', cwd: task.cwd, reason: '演练人工批准流程', availableDecisions: ['accept', 'decline', 'cancel'] } };
         this.requests.set(String(request.id), { request, finish, turn, thread });
         this.emit('request', request);
       }, this.stepMs);

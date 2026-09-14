@@ -32,7 +32,7 @@
       </nav>
       <div class="sidebar-bottom">
         <div class="local-label"><i class="dot mint"></i><span>数据保存在本机</span></div>
-        <div class="version-label">PC 本地监护 <span id="app-version">v0.3.0</span></div>
+        <div class="version-label">PC 本地监护 <span id="app-version">v0.4.0</span></div>
       </div>
     </aside>
 
@@ -47,6 +47,7 @@
       <div id="connection-notice" class="notice danger" hidden><strong>与本机守护服务的连接已中断，正在重连。任务状态暂时无法更新。</strong></div>
 
       <section id="view-monitor" class="view">
+        <p id="dnd-monitor-summary" class="panel-description">免打扰 0/5 · 自动处理 0 次</p>
         <div class="metrics" aria-label="运行概况">
           <article class="metric"><div><span>正在运行</span><i class="metric-icon mint-text">↗</i></div><strong id="metric-running">0</strong><small>已受管的活动任务</small></article>
           <article class="metric"><div><span>自动继续</span><i class="metric-icon blue-text">↻</i></div><strong id="metric-retries">0</strong><small>累计续发次数</small></article>
@@ -72,7 +73,7 @@
               <div class="task-toolbar" aria-label="任务操作"><button id="pause-task" class="button compact">暂停恢复</button><button id="continue-task" class="button compact">手动继续</button><button id="replace-task" class="button compact">新会话接续</button><button id="reconcile-task" class="button compact">核对状态</button><button id="stop-task" class="button compact danger-text">停止任务</button></div>
               <div id="retry-banner" class="retry-banner" hidden><span class="spinner"></span><span id="retry-message"></span></div>
               <div class="recovery-card"><div class="section-heading"><h3>恢复进度</h3><select id="task-strategy" aria-label="当前任务接续策略"><option value="manual">达到阈值 · 人工处理</option><option value="new_session">达到阈值 · 新会话接续</option></select></div><div id="recovery-track" class="recovery-track"></div><p id="failure-evidence" class="recovery-note"></p><p id="output-watch" class="recovery-note"></p><div class="recovery-foot"><span id="retry-budget"></span><span id="session-count"></span></div></div>
-              <div id="approval-list" class="approval-list"></div>
+              <p id="dnd-task-info" class="panel-description"></p><div id="approval-list" class="approval-list"></div>
               <div class="detail-tabs" role="tablist" aria-label="任务内容"><button class="detail-tab active" data-detail="timeline" role="tab">事件时间线</button><button class="detail-tab" data-detail="output" role="tab">最近输出</button><button class="detail-tab" data-detail="handoff" role="tab">会话与交接</button></div>
               <div id="detail-timeline" class="detail-content"><ol id="timeline" class="timeline"></ol></div>
               <div id="detail-output" class="detail-content" hidden><pre id="latest-output" class="output-box"></pre></div>
@@ -85,6 +86,25 @@
       <section id="view-alerts" class="view" hidden><div class="panel full-panel"><div class="panel-heading"><h2>告警记录</h2><a class="text-button" href="/api/v1/export" download>导出运行记录 ↓</a></div><div class="panel-description">确认只表示你已知晓告警。任务是否继续，由你单独决定。</div><div id="alerts-list"></div></div></section>
 
       <section id="view-settings" class="view" hidden>
+
+        <section id="dnd-panel" class="panel dnd-panel" aria-labelledby="dnd-title">
+          <div class="panel-heading"><div class="dnd-heading"><h2 id="dnd-title">免打扰</h2><span id="dnd-count">已开启 0 / 5</span></div><label class="dnd-master"><input id="dnd-all" type="checkbox" role="switch" aria-label="免打扰全部开关"><span id="dnd-all-label">全部开</span></label></div>
+          <div class="dnd-rows">
+            <label class="dnd-row"><span><strong>沙箱外写文件免确认</strong><small>工作区外文件读写与补丁 · 可限定目录</small></span><input id="dnd-outsideWorkspace" data-dnd-key="outsideWorkspace" type="checkbox" role="switch" aria-label="沙箱外写文件免确认"></label>
+            <label class="dnd-row"><span><strong>常用命令免确认</strong><small>常用查询、Git 查看、项目测试与构建直接执行</small></span><input id="dnd-commonCommands" data-dnd-key="commonCommands" type="checkbox" role="switch" aria-label="常用命令免确认"></label>
+            <label class="dnd-row"><span><strong>大批量删除免确认</strong><small>专用删除工具直接移入 Windows 回收站</small></span><input id="dnd-recycleDeletes" data-dnd-key="recycleDeletes" type="checkbox" role="switch" aria-label="大批量删除免确认"></label>
+            <label class="dnd-row"><span><strong>系统级工具放行</strong><small>已识别的系统管理命令直接批准</small></span><input id="dnd-systemTools" data-dnd-key="systemTools" type="checkbox" role="switch" aria-label="系统级工具放行"></label>
+            <label class="dnd-row"><span><strong>弹窗自动点允许</strong><small>工具的明确确认自动允许 · 普通问题仍需回答</small></span><input id="dnd-confirmationPrompts" data-dnd-key="confirmationPrompts" type="checkbox" role="switch" aria-label="弹窗自动点允许"></label>
+          </div>
+          <div class="dnd-bottom">
+            <p id="dnd-save-status" role="status" aria-live="polite">仅作用于本服务管理的任务；保存后即时生效。</p>
+            <p class="dnd-hint">关闭的类别保留人工处理。已显示的请求不会因开关改变而自动批准；关掉开关不能撤销已经发出的批准。</p>
+            <details><summary>适用范围与工作区外目录</summary><form id="dnd-roots-form"><label>允许的工作区外目录（每行一个）<textarea id="dnd-roots" rows="3" placeholder="留空表示不额外限定目录；仅在文件免确认开启时生效"></textarea></label><button id="dnd-roots-save" type="submit" class="button compact">保存目录范围</button></form><p class="dnd-hint">项目测试/构建会运行项目自带脚本，请只在你信任的工作目录启用。系统管理命令沿用当前用户权限；登录授权和 Windows 系统弹窗需要你处理。回收站工具仅在本版本新建的 Windows 受管会话中提供，现有沙箱已经允许的操作不经过此审批器。</p></details>
+            <div class="dnd-summary"><span>自动处理 <strong id="dnd-approved">0</strong> 次</span><span id="dnd-platform"></span></div>
+            <details><summary>最近批准记录</summary><div id="dnd-history" class="dnd-history"></div></details>
+          </div>
+        </section>
+
         <form id="codex-path-form" class="panel installation-panel">
           <div class="panel-heading"><h2>Codex 安装</h2><span id="codex-installation-badge" class="badge neutral">自动发现 / 手动指定</span></div>
           <div class="settings-fields">
@@ -109,7 +129,7 @@
     </main>
   </div>
 
-  <dialog id="create-dialog" class="modal"><form id="create-form"><div class="modal-heading"><div><div class="eyebrow">NEW GUARDED TASK</div><h2>新建监护任务</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><div class="modal-body"><label>任务来源<select id="create-mode"><option value="new">创建一个新 Codex 会话</option><option value="adopt">接管已停止的历史会话</option></select></label><div id="adopt-fields" hidden><label>历史会话 ID<input id="create-thread" maxlength="180" placeholder="粘贴要接续的会话 ID"></label><label>旧对话链接（可选）<input id="create-source-url" maxlength="2000" placeholder="原客户端提供的会话链接"></label><label class="checkbox-label"><input id="ownership-confirm" type="checkbox">我已在其他客户端停止此会话，并交由 AutoCodex 独占监护</label></div><label>任务名称<input id="create-name" maxlength="120" placeholder="例如：完成登录模块并运行测试" required></label><label>工作目录<input id="create-cwd" placeholder="选择要处理的本机项目绝对路径" required></label><label>任务描述<textarea id="create-prompt" rows="4" maxlength="16000" placeholder="写下需要 Codex 完成的工作。恢复后会继续同一目标。" required></textarea></label><div id="scenario-field" hidden><label>故障演练场景<select id="create-scenario"></select></label></div><div class="form-row"><label>错误反复后<select id="create-strategy"><option value="manual">告警并等待我处理</option><option value="new_session">自动新会话接续</option></select></label><label>项目访问<select id="create-sandbox"><option value="workspace-write">允许修改当前项目</option><option value="read-only">只读检查</option></select></label></div><label>模型（可选）<input id="create-model" maxlength="128" placeholder="留空使用当前 Codex 配置"></label><p id="create-error" class="form-error" role="alert"></p></div><div class="modal-footer"><span>需要额外权限时会等待你的决定</span><button type="button" class="button close-dialog">取消</button><button id="create-submit" class="button primary" type="submit">开始监护</button></div></form></dialog>
+  <dialog id="create-dialog" class="modal"><form id="create-form"><div class="modal-heading"><div><div class="eyebrow">NEW GUARDED TASK</div><h2>新建监护任务</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><div class="modal-body"><label>任务来源<select id="create-mode"><option value="new">创建一个新 Codex 会话</option><option value="adopt">接管已停止的历史会话</option></select></label><div id="adopt-fields" hidden><label>历史会话 ID<input id="create-thread" maxlength="180" placeholder="粘贴要接续的会话 ID"></label><label>旧对话链接（可选）<input id="create-source-url" maxlength="2000" placeholder="原客户端提供的会话链接"></label><label class="checkbox-label"><input id="ownership-confirm" type="checkbox">我已在其他客户端停止此会话，并交由 AutoCodex 独占监护</label></div><label>任务名称<input id="create-name" maxlength="120" placeholder="例如：完成登录模块并运行测试" required></label><label>工作目录<input id="create-cwd" placeholder="选择要处理的本机项目绝对路径" required></label><label>任务描述<textarea id="create-prompt" rows="4" maxlength="16000" placeholder="写下需要 Codex 完成的工作。恢复后会继续同一目标。" required></textarea></label><div id="scenario-field" hidden><label>故障演练场景<select id="create-scenario"></select></label></div><div class="form-row"><label>错误反复后<select id="create-strategy"><option value="manual">告警并等待我处理</option><option value="new_session">自动新会话接续</option></select></label><label>项目访问<select id="create-sandbox"><option value="workspace-write">允许修改当前项目</option><option value="read-only">只读检查</option></select></label></div><label>模型（可选）<input id="create-model" maxlength="128" placeholder="留空使用当前 Codex 配置"></label><p id="create-error" class="form-error" role="alert"></p></div><div class="modal-footer"><span>按免打扰设置处理权限；未匹配的请求等待你的决定</span><button type="button" class="button close-dialog">取消</button><button id="create-submit" class="button primary" type="submit">开始监护</button></div></form></dialog>
 
   <dialog id="history-dialog" class="modal wide"><div class="modal-heading"><h2 id="history-title">会话历史</h2><button type="button" class="icon-button close-dialog" aria-label="关闭历史">×</button></div><div id="history-content" class="modal-body history-content"></div></dialog>
   <div id="toast" class="toast" role="status" hidden></div>

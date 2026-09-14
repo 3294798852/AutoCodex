@@ -1,0 +1,39 @@
+{
+  "testedAt": "2026-09-14T10:49:13.298Z",
+  "version": "0.4.0",
+  "checks": [
+    "fresh installation defaults to five disabled switches",
+    "five independent toggles save immediately and update N/5",
+    "master switch enables and disables all five options",
+    "saved settings survive browser reload",
+    "optional outside directories persist and reload",
+    "SSE synchronizes switch changes to another open page",
+    "stale simultaneous edits are rejected and current state restored",
+    "enabling a switch preserves a previously displayed manual request",
+    "existing manual approval stays usable",
+    "subsequent request is approved and shown in the live audit list",
+    "switch off makes subsequent requests wait for a human",
+    "manual rejection is recorded without retry",
+    "task timeline contains the automatic approval event",
+    "20 wall-clock approval and browser SSE samples meet latency targets",
+    "desktop and 390px layout render without horizontal overflow"
+  ],
+  "browserErrors": [],
+  "decisionLatency": {
+    "samples": 20,
+    "p50": 6,
+    "p95": 7.9,
+    "max": 8.7,
+    "unit": "ms"
+  },
+  "panelLatency": {
+    "samples": 20,
+    "p50": 61,
+    "p95": 88.6,
+    "max": 154.2,
+    "unit": "ms"
+  },
+  "desktop": "1500x1100",
+  "narrow": "390x844",
+  "modelRequests": 0
+}

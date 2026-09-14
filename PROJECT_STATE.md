@@ -1,6 +1,16 @@
 # AutoCodex 项目接续记录
 
-更新：2026-09-13；当前版本：0.3.0；本轮状态：P7 已完成；P8 Git 仓库初始化及 GitHub 私有仓库推送已完成。
+更新：2026-09-14；当前版本：0.4.0；本轮状态：P9 免打扰需求、实现、集成验收和发布验证完成。
+
+## P9 免打扰权限自动批准
+
+已按照图片实现五项独立开关、全部开/关、已开启 N/5、目录范围、近期批准记录和任务次数。需求见 docs/12-dnd-requirements.md，方案见 docs/13-dnd-implementation.md，操作见 docs/09-user-guide.md 第 6.1 节。默认关闭，设置即时持久化；已显示的请求保持人工。原始请求用于判断和回答，脱敏预览用于界面/审计；批准前落盘、按连接/回合去重、结果不明锁定自动续发/换会话，跨迟到终态和重启保持。
+
+本机 CLI 0.153.4 实验证实 dynamicTools 与 approvalsReviewer=user；新建 Windows 会话提供 autocodex_recycle，旧会话 resume 不能新增该工具。Windows IFileOperation 实际回收中文/空格文件与目录，并从回收站还原核对内容；没有永久删除兜底。真实 Codex 使用隔离本机 SSE 上游验证命令批准、动态工具注册、回收执行和结果回传，测试对象已还原。4 次本机协议请求、0 付费请求。
+
+114 项自动测试通过（新增 30 项），42 个模块语法/JSON 检查通过；原八组真实故障场景回归通过。界面 15 项验收覆盖五开关、总开关、保存刷新、双页同步/409冲突、旧请求保留、后续自动批准、关闭后人工、记录与桌面/390px布局，零页面异常。20 次墙钟样本及截图记录在 docs/validation/dnd-ui-report.json、docs/assets/dnd-settings*.png。最终样本批准 p95 7.9 ms、面板 p95 88.6 ms。
+
+交付：dist/autocodex-guard-0.4.0.zip；插件/随附技能格式校验通过；发布包中文搬迁、哈希、默认开关、重启保留、自动发现/手动路径及正常关闭已通过。报告见 docs/06-validation.md 和 docs/validation/release-v04-runtime-report.json。后续按新的需求继续，无需重做 P9；Git 提交及同步状态以 git log/status 与 origin/main 为准。用户真实任务免打扰设置及全局 Codex 配置未更改。
 
 ## P8 Git 仓库与 GitHub 发布（2026-09-13）
 

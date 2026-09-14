@@ -1,3 +1,5 @@
+import { DND_LABELS, DND_KEYS, validateDnd, evaluateDnd } from './dnd-policy.mjs';
+import { prepareRecycle, recyclePaths } from './recycle.mjs';
 import { EventEmitter } from 'node:events';
 import { VERSION } from '../version.mjs';
 import { isAbsolute } from 'node:path';
@@ -13,13 +15,20 @@ const BUSY = new Set(['starting', 'running', 'recovering', 'waiting_user']);
 const SUPPORTED_REQUESTS = new Set([
   'item/commandExecution/requestApproval', 'item/fileChange/requestApproval',
   'item/permissions/requestApproval', 'item/tool/requestUserInput', 'tool/requestUserInput',
-  'mcpServer/elicitation/request',
+  'mcpServer/elicitation/request', 'item/tool/call',
 ]);
 
 export class Supervisor extends EventEmitter {
-  constructor({ store, adapter, origin = 'http://127.0.0.1:3210', now = Date.now, random = Math.random }) {
+  constructor({ store, adapter, origin = 'http://127.0.0.1:3210', now = Date.now, random = Math.random, recycle = recyclePaths }) {
     super();
     Object.assign(this, { store, adapter, origin, now, random });
+    this.recycle = recycle;
+    this.dnd = validateDnd(store.getMeta('dndSettings') || {}, undefined, { restoring: true });
+    this.dnd.revision = store.getMeta('dndSettings')?.revision || 0;
+    this.rawItems = new Map(); this.rawApprovals = new Map(); this.transportGeneration = 0; this.approvalEpoch = uid();
+    this.nativeOperations = new Map();
+    this.resolvedRequests = new Set();
+    this.pendingStops = new Set();
     this.queues = new Map();
     this.scheduled = new Set();
     this.defaultPolicy = validatePolicy(store.getMeta('defaultPolicy') || {});
@@ -27,9 +36,21 @@ export class Supervisor extends EventEmitter {
     this.faulted = false;
     adapter.on('notification', message => this.routeNotification(message));
     adapter.on('request', message => this.routeRequest(message));
-    adapter.on('disconnect', error => this.disconnected(error));
+    adapter.on('disconnect', error => {
+      this.transportGeneration++; this.rawItems.clear(); this.rawApprovals.clear(); this.resolvedRequests.clear();
+      for (const controller of this.nativeOperations.values()) controller.abort();
+      this.disconnected(error);
+    });
     adapter.on('connected', state => this.emit('change', { type: 'connection', state }));
     adapter.on('diagnostic', data => { this.lastDiagnostic = redact(data.message, 1200); });
+    for (const approval of store.records('approvals').filter(a => ['pending', 'sending'].includes(a.status))) {
+      if (approval.status === 'sending') {
+        const task = store.task(approval.taskId);
+        if (task) { task.approvalBlocked = true; this.alert(task, 'approval_uncertain', '服务重启时上次批准或回收结果未确认，请核对后手动处理'); }
+        approval.status = 'uncertain';
+      } else approval.status = 'expired';
+      store.saveRecord('approvals', approval, approval.taskId);
+    }
     for (const task of store.tasks()) {
       task.policy = validatePolicy(task.policy || {}, this.defaultPolicy);
       if (task.incident?.version !== 2 || !task.outputMonitor) {
@@ -153,6 +174,7 @@ export class Supervisor extends EventEmitter {
   }
 
   async openThread(task, fallback) {
+    if (this.closing || this.pendingStops.has(task.id)) return false;
     const action = { id: uid(), taskId: task.id, key: `thread:${task.id}:${uid()}`, kind: 'create_thread', state: 'sending', createdAt: this.now() };
     task.pendingActionId = action.id;
     task.status = fallback ? 'recovering' : 'starting';
@@ -161,6 +183,7 @@ export class Supervisor extends EventEmitter {
       const thread = await this.adapter.createThread(task);
       assert(thread?.id, 'Codex 没有返回新会话 ID', 502);
       this.rememberThreadSettings(task, thread);
+      task.recycleToolAvailable = thread.recycleToolAvailable === true;
       task.threadId = thread.id;
       task.threadChain.push({ id: thread.id, createdAt: this.now(), reason: fallback ? 'recovery' : 'created' });
       task.pendingActionId = null;
@@ -179,10 +202,12 @@ export class Supervisor extends EventEmitter {
   }
 
   async sendTurn(task, text, kind, key) {
-    if (task.stopRequested || task.paused && kind === 'continue') return;
+    if (this.closing || this.pendingStops.has(task.id) || task.stopRequested || task.paused && kind === 'continue') return;
+    if (task.approvalBlocked) { this.holdUncertainApproval(task); return; }
     if (['continue', 'fallback'].includes(kind) && noOutputExpired(task, this.now())) { this.blockForNoOutput(task); return; }
     const action = { id: uid(), taskId: task.id, key, kind, state: 'sending', threadId: task.threadId, createdAt: this.now() };
-    const message = `${text}\n\n[AutoCodex task: ${task.id}]\n[AutoCodex action: ${action.id}]`;
+    const toolGuidance = task.recycleToolAvailable ? '\n文件删除请调用 autocodex_recycle 移入回收站；工具失败或结果不明时请报告并核对，不要改用永久删除或自动重试。' : '';
+    const message = `${text}${toolGuidance}\n\n[AutoCodex task: ${task.id}]\n[AutoCodex action: ${action.id}]`;
     action.marker = `[AutoCodex action: ${action.id}]`;
     task.pendingActionId = action.id;
     task.status = kind === 'fallback' ? 'recovering' : 'starting';
@@ -233,7 +258,16 @@ export class Supervisor extends EventEmitter {
     if (!threadId) return;
     const task = this.store.taskByThread(threadId);
     if (!task || task.threadId !== threadId) return;
-    this.exclusive(task.id, () => this.handleNotification(task.id, method, params)).catch(error => this.fault(error));
+    if (method === 'serverRequest/resolved') {
+      const key = this.transportGeneration + ':' + threadId + ':' + String(params.requestId);
+      this.resolvedRequests.add(key);
+      if (this.resolvedRequests.size > 1000) this.resolvedRequests.delete(this.resolvedRequests.values().next().value);
+      for (const raw of this.rawApprovals.values()) if (raw.request.params.threadId === threadId && String(raw.request.id) === String(params.requestId)) {
+        raw.resolved = true; this.nativeOperations.get(task.id)?.abort();
+      }
+    }
+    const generation = this.transportGeneration;
+    this.exclusive(task.id, () => generation === this.transportGeneration && this.handleNotification(task.id, method, params)).catch(error => this.fault(error));
   }
 
   async handleNotification(id, method, params) {
@@ -258,7 +292,7 @@ export class Supervisor extends EventEmitter {
     if (method === 'serverRequest/resolved') {
       for (const approval of this.store.records('approvals', id)) {
         if (approval.requestId === String(params.requestId) && approval.status === 'pending') {
-          approval.status = 'resolved'; this.store.saveRecord('approvals', approval, id);
+          approval.status = 'resolved'; this.store.saveRecord('approvals', approval, id); this.rawApprovals.delete(approval.id);
         }
       }
       if (task.status === 'waiting_user' && !this.pendingApprovals(id).length) task.status = 'running';
@@ -288,6 +322,11 @@ export class Supervisor extends EventEmitter {
     }
     if (method === 'item/started' || method === 'item/completed') {
       const item = params.item || {};
+      const itemKey = task.threadId + ':' + task.turnId + ':' + item.id;
+      if (method === 'item/started') {
+        if (this.rawItems.size >= 200) this.rawItems.delete(this.rawItems.keys().next().value);
+        this.rawItems.set(itemKey, structuredClone(item));
+      } else this.rawItems.delete(itemKey);
       task.lastActivityAt = this.now();
       if (['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall'].includes(item.type)) {
         task.itemPreviews = [...(task.itemPreviews || []).filter(old => old.id !== item.id).slice(-9), safeData(item)];
@@ -326,8 +365,10 @@ export class Supervisor extends EventEmitter {
     task.lastTerminalTurnId = turn.id;
     task.pendingActionId = null;
     for (const request of this.pendingApprovals(task.id)) {
-      request.status = 'expired'; this.store.saveRecord('approvals', request, task.id);
+      request.status = 'expired'; this.store.saveRecord('approvals', request, task.id); this.rawApprovals.delete(request.id);
     }
+    for (const key of this.rawItems.keys()) if (key.startsWith(task.threadId + ':' + turn.id + ':')) this.rawItems.delete(key);
+    if (task.approvalBlocked) { this.holdUncertainApproval(task); return; }
     if (turn.status === 'completed') {
       task.status = 'completed'; task.retryDueAt = null; task.retryPlan = null;
       task.lastIncident = { ...task.incident }; task.incident = newIncident(); task.lastError = null; task.isFallbackFirstTurn = false;
@@ -343,6 +384,7 @@ export class Supervisor extends EventEmitter {
   settleFailure(task, error) {
     task.lastError = error;
     task.lastTerminalTurnId = task.turnId;
+    if (task.approvalBlocked) { this.holdUncertainApproval(task); return; }
     const decision = decideFailure(task, error, this.now(), this.random);
     task.incident = decision.incident;
     this.record(task, 'turn_failed', error.label, { level: 'warning', data: { error, consecutiveSame: task.incident.consecutiveSame, autoAttempts: task.incident.autoAttempts, threshold: task.incident.threshold, match: task.incident.match } });
@@ -367,6 +409,11 @@ export class Supervisor extends EventEmitter {
     const { threshold, match } = task.incident;
     const reason = match.withinWindow ? `${Math.round(task.policy.errorWindowMs / 1000)} 秒内` : '期间无有效输出';
     return `连续 ${threshold} 次同类错误（含首次错误，${reason}）`;
+  }
+
+  holdUncertainApproval(task) {
+    task.status = 'needs_attention'; task.retryDueAt = null; task.retryPlan = null;
+    this.record(task, 'approval_protection_held', '批准或回收结果仍需核对，自动续发与新会话接续保持停止');
   }
 
   blockForNoOutput(task) {
@@ -415,6 +462,7 @@ export class Supervisor extends EventEmitter {
 
   async dispatchScheduled(id) {
     const task = this.getTask(id);
+    if (task.approvalBlocked) { this.holdUncertainApproval(task); return; }
     if (task.paused || task.stopRequested || task.status !== 'retry_wait' || task.retryDueAt > this.now()) return;
     if (noOutputExpired(task, this.now())) { this.blockForNoOutput(task); return; }
     if (task.retryPlan === 'reconcile') { await this.reconcileTask(task); return; }
@@ -441,6 +489,7 @@ export class Supervisor extends EventEmitter {
   }
 
   async replaceTask(task, manual) {
+    if (task.approvalBlocked) { this.holdUncertainApproval(task); return; }
     let history = null, historyError = null;
     try { history = await this.adapter.readThread(task.threadId); }
     catch (error) { historyError = error.message; }
@@ -456,7 +505,7 @@ export class Supervisor extends EventEmitter {
     task.incident.replacements++;
     task.incident.consecutiveSame = 0; task.incident.lastErrorCategory = null; task.incident.recentErrors = []; task.incident.match = null;
     task.lastHandoffId = packet.id; task.retryDueAt = null; task.retryPlan = null;
-    task.turnId = null; task.paused = false; task.stopRequested = false;
+    task.turnId = null; task.paused = false; task.stopRequested = false; task.approvalBlocked = false;
     this.record(task, 'handoff_saved', '旧会话链接、目标和进度已保存为交接材料', { data: { handoffId: packet.id, oldThreadId: packet.source.threadId } });
     if (await this.openThread(task, true)) await this.sendTurn(task, handoffPrompt(packet), 'fallback', `fallback:${packet.id}`);
   }
@@ -474,7 +523,7 @@ export class Supervisor extends EventEmitter {
           approval.status = 'expired'; this.store.saveRecord('approvals', approval, task.id);
         }
         if (latest.outputMonitor.blocked) { latest.status = 'needs_attention'; this.record(latest, 'transport_disconnected', 'Codex 已断开；长期无输出保护保持停止'); }
-        else if (hadPendingRequest) this.alert(latest, 'pending_request_lost', 'Codex 在等待用户决定时断开；原请求已失效，需要人工核对');
+        else if (hadPendingRequest || latest.approvalBlocked) this.alert(latest, 'pending_request_lost', 'Codex 的批准请求已失效或结果未确认，需要人工核对');
         else if (latest.pendingActionId || !latest.turnId) this.alert(latest, 'transport_uncertain', 'Codex 断开时有未确认动作，需核对执行结果');
         else {
           latest.status = 'retry_wait'; latest.retryPlan = 'reconcile'; latest.retryDueAt = this.now() + 2000;
@@ -493,7 +542,7 @@ export class Supervisor extends EventEmitter {
       if (task.mode !== this.adapter.mode) {
         this.alert(task, 'mode_changed', '此任务属于另一运行模式，请使用对应数据目录'); continue;
       }
-      if (task.status === 'waiting_user') {
+      if (task.status === 'waiting_user' || task.approvalBlocked) {
         this.alert(task, 'pending_request_lost', '服务重启后原用户请求已失效，需要核对后手动处理'); continue;
       }
       if (task.status === 'retry_wait' && !task.pendingActionId) {
@@ -546,65 +595,160 @@ export class Supervisor extends EventEmitter {
   pendingApprovals(taskId) { return this.store.records('approvals', taskId).filter(approval => approval.status === 'pending'); }
 
   routeRequest(request) {
-    if (this.closed || this.faulted) return;
-    const task = this.store.taskByThread(request.params?.threadId);
+    if (this.closing || this.closed || this.faulted) return;
+    const task = this.store.taskByThread(request.params?.threadId), generation = this.transportGeneration;
     if (!task || task.threadId !== request.params.threadId || task.stopRequested) { this.adapter.reject(request.id, '会话不在监护范围'); return; }
-    this.exclusive(task.id, () => {
-      const latest = this.getTask(task.id);
-      if (!SUPPORTED_REQUESTS.has(request.method)) {
-        this.adapter.reject(request.id, 'AutoCodex 尚不支持此类交互，请在原客户端处理');
-        this.alert(latest, 'unsupported_request', `Codex 请求了尚不支持的交互：${request.method}`); return;
+    this.exclusive(task.id, async () => {
+      const latest = this.getTask(task.id), params = request.params || {};
+      if (this.closing) return;
+      if (generation !== this.transportGeneration || this.resolvedRequests.has(generation + ':' + params.threadId + ':' + String(request.id))) return;
+      if (this.pendingStops.has(task.id) || latest.stopRequested || TERMINAL.has(latest.status) || params.turnId && params.turnId !== latest.turnId || latest.lastTerminalTurnId === latest.turnId) {
+        this.adapter.reject(request.id, '该回合已失效'); return;
       }
-      if (request.params.turnId && request.params.turnId !== latest.turnId) { this.adapter.reject(request.id, '该回合已失效'); return; }
+      if (!SUPPORTED_REQUESTS.has(request.method) || request.method === 'item/tool/call' && (params.tool !== 'autocodex_recycle' || params.namespace)) {
+        this.adapter.reject(request.id, 'AutoCodex 尚不支持此类交互，请在原客户端处理');
+        this.alert(latest, 'unsupported_request', 'Codex 请求了尚不支持的交互：' + request.method); return;
+      }
+      const receipt = this.approvalEpoch + ':' + generation + ':' + params.threadId + ':' + params.turnId + ':' + String(request.id);
+      const item = this.rawItems.get(params.threadId + ':' + params.turnId + ':' + params.itemId) || null;
+      const raw = { request: structuredClone(request), item, generation };
       const approval = { id: uid(), taskId: task.id, requestId: String(request.id), method: request.method,
-        params: safeData(request.params), item: latest.itemPreviews?.find(item => item.id === request.params.itemId) || null,
-        status: 'pending', createdAt: this.now() };
-      this.store.saveRecord('approvals', approval, task.id);
-      if (request.params.isBlocking !== false) latest.status = 'waiting_user';
-      latest.lastActivityAt = this.now();
-      this.record(latest, 'user_requested', 'Codex 需要用户决定，自动恢复等待中', { data: { approvalId: approval.id, method: request.method } });
+        params: safeData(params), item: safeData(item), status: 'pending', createdAt: this.now(), settingsRevision: this.dnd.revision };
+      approval.previewLimited = JSON.stringify(approval.params) !== JSON.stringify(params) || JSON.stringify(approval.item) !== JSON.stringify(item);
+      let decision;
+      if (!params.turnId || params.turnId !== latest.turnId || latest.paused || latest.approvalBlocked || latest.outputMonitor.blocked || latest.transportLost || !this.adapter.state.connected)
+        decision = { automatic: false, reason: '任务暂停、保护锁定或缺少当前回合信息', categories: [] };
+      else if (request.method === 'item/tool/call') {
+        try {
+          const prepared = prepareRecycle(params.arguments, latest, this.dnd, this.store.directory);
+          const missing = prepared.categories.filter(key => !this.dnd[key]);
+          decision = { automatic: !missing.length, categories: prepared.categories, reason: missing.length ? '回收站操作需要人工允许：' + missing.map(key => DND_LABELS[key]).join('、') : '明确目标通过回收站检查', recycle: true };
+        } catch (error) { decision = { automatic: false, reason: error.message, categories: [] }; }
+      } else decision = evaluateDnd({ ...raw, task: latest, settings: this.dnd });
+      approval.automation = { automatic: decision.automatic, reason: redact(decision.reason), categories: decision.categories };
+      let inserted = false;
+      this.store.transaction(() => {
+        inserted = this.store.receipt('approval:' + receipt, this.now());
+        if (inserted) this.store.saveRecord('approvals', approval, task.id);
+      });
+      if (!inserted) return;
+      this.rawApprovals.set(approval.id, raw);
+      if (decision.automatic) {
+        await this.finishApproval(latest, approval, decision.response, { automatic: true, recycle: decision.recycle, categories: decision.categories });
+      } else {
+        if (params.isBlocking !== false) latest.status = 'waiting_user';
+        latest.lastActivityAt = this.now();
+        this.record(latest, 'user_requested', 'Codex 需要用户决定：' + redact(decision.reason, 180), { data: { approvalId: approval.id, method: request.method, reason: decision.reason } });
+      }
     }).catch(error => this.fault(error));
+  }
+
+  async finishApproval(task, approval, response, { automatic = false, recycle = false, categories = [] } = {}) {
+    const raw = this.rawApprovals.get(approval.id);
+    assert(raw && raw.generation === this.transportGeneration, '请求所属连接已失效，请核对', 409);
+    assert(!raw.resolved, '请求已经由 Codex 解决', 409);
+    assert(!task.stopRequested && !TERMINAL.has(task.status) && (!raw.request.params.turnId || raw.request.params.turnId === task.turnId), '请求所属回合已失效', 409);
+    let prepared;
+    if (recycle) {
+      try { prepared = prepareRecycle(raw.request.params.arguments, task, this.dnd, this.store.directory); }
+      catch (error) {
+        if (!automatic) throw error;
+        approval.automation = { automatic: false, categories: [], reason: redact(error.message) };
+        this.store.saveRecord('approvals', approval, task.id); task.status = 'waiting_user';
+        this.record(task, 'user_requested', '回收目标检查未通过，请人工核对：' + redact(error.message, 180));
+        return task;
+      }
+    }
+    approval.status = 'sending'; approval.source = automatic ? 'automatic' : 'manual';
+    approval.categories = categories; approval.decidedAt = this.now();
+    this.store.transaction(() => {
+      this.store.saveRecord('approvals', approval, task.id);
+      this.store.event(task.id, 'approval_decided', automatic ? '免打扰规则已匹配，正在批准本次请求' : '已记录用户决定', { data: { approvalId: approval.id, source: approval.source, categories, revision: approval.settingsRevision }, now: this.now() });
+    });
+    try {
+      if (recycle) {
+        const controller = new AbortController(); this.nativeOperations.set(task.id, controller);
+        let result;
+        try { result = await this.recycle(prepared.paths, { signal: controller.signal }); }
+        finally { this.nativeOperations.delete(task.id); }
+        response = { success: result.success, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
+        approval.recycleResult = safeData(result);
+      }
+      assert(!raw.resolved && raw.generation === this.transportGeneration && this.adapter.state.connected, '请求已失效或批准发送前连接已断开', 409);
+      await this.adapter.respond(approval.requestId, response);
+      assert(raw.generation === this.transportGeneration && this.adapter.state.connected, '批准写入期间连接中断，结果待核对', 409);
+      approval.status = 'answered'; approval.answeredAt = this.now(); approval.decision = response?.decision || response?.action || (response?.success === false ? 'decline' : response?.answers ? 'answered' : 'accept');
+      this.store.saveRecord('approvals', approval, task.id);
+      this.rawApprovals.delete(approval.id);
+      if (!this.pendingApprovals(task.id).length && task.status === 'waiting_user') task.status = 'running';
+      if (automatic) task.totalAutoApprovals = (task.totalAutoApprovals || 0) + 1;
+      this.record(task, automatic ? 'approval_automatic' : 'user_responded', automatic ? '免打扰已处理：' + categories.map(key => DND_LABELS[key]).join('、') : '用户已处理 Codex 请求',
+        { data: { approvalId: approval.id, categories, revision: approval.settingsRevision, durationMs: this.now() - approval.createdAt, recycle: approval.recycleResult } });
+      if (response?.success === false && recycle) { task.approvalBlocked = true; this.alert(task, 'recycle_incomplete', '回收站操作未全部完成，请核对已回收目标后处理剩余项'); }
+    } catch (error) {
+      task.approvalBlocked = true;
+      approval.status = 'uncertain'; approval.error = redact(error.message);
+      this.store.saveRecord('approvals', approval, task.id); this.rawApprovals.delete(approval.id);
+      this.alert(task, 'approval_uncertain', '批准或回收结果无法确认，已停止自动重发：' + redact(error.message, 180));
+    }
+    return task;
   }
 
   async respondApproval(id, input) {
     const approval = this.store.records('approvals').find(item => item.id === id);
     assert(approval && approval.status === 'pending', '请求已失效或已处理', 409);
-    return this.exclusive(approval.taskId, () => {
+    return this.exclusive(approval.taskId, async () => {
       const fresh = this.store.records('approvals', approval.taskId).find(item => item.id === id);
       assert(fresh.status === 'pending', '请求已经处理', 409);
-      const task = this.getTask(approval.taskId);
+      const task = this.getTask(approval.taskId), raw = this.rawApprovals.get(id);
+      assert(raw, '原始请求已失效，请核对状态', 409);
+      const params = raw.request.params;
       assert(!task.stopRequested && !TERMINAL.has(task.status), '任务已停止', 409);
-      let response;
-      if (approval.method.endsWith('requestUserInput')) {
+      let response, recycle = false;
+      if (approval.method === 'item/tool/call') {
+        assert(['accept', 'decline', 'cancel'].includes(input.decision), '无效的决定');
+        recycle = input.decision === 'accept';
+        response = { success: false, contentItems: [{ type: 'inputText', text: '用户未允许此次回收站操作；未执行删除。' }] };
+      } else if (approval.method.endsWith('requestUserInput')) {
         assert(input.answers && typeof input.answers === 'object', '请填写问题答案');
         const answers = {};
-        for (const question of approval.params.questions || []) {
-          const value = boundedText(input.answers[question.id], question.header || '答案', 8000);
-          answers[question.id] = { answers: [value] };
-        }
+        for (const question of params.questions || []) answers[question.id] = { answers: [boundedText(input.answers[question.id], question.header || '答案', 8000)] };
         response = { answers };
       } else if (approval.method === 'mcpServer/elicitation/request') {
         assert(['accept', 'decline', 'cancel'].includes(input.decision), '无效的决定');
         response = { action: input.decision, content: input.decision === 'accept' ? input.content ?? null : null };
       } else if (approval.method === 'item/permissions/requestApproval') {
         assert(['accept', 'decline'].includes(input.decision), '无效的决定');
-        response = { permissions: input.decision === 'accept' ? approval.params.permissions || {} : {}, scope: 'turn' };
+        response = { permissions: input.decision === 'accept' ? params.permissions || {} : {}, scope: 'turn' };
       } else {
         assert(['accept', 'decline', 'cancel'].includes(input.decision), '只允许批准本次、拒绝或取消');
-        const available = approval.params.availableDecisions;
-        assert(!available || available.includes(input.decision), 'Codex 未提供此决定');
+        assert(!params.availableDecisions || params.availableDecisions.includes(input.decision), 'Codex 未提供此决定');
         response = { decision: input.decision };
       }
-      this.adapter.respond(approval.requestId, response);
-      fresh.status = 'answered'; fresh.answeredAt = this.now(); fresh.decision = input.decision || 'answered';
-      this.store.saveRecord('approvals', fresh, task.id);
-      if (!this.pendingApprovals(task.id).length && task.status === 'waiting_user') task.status = 'running';
-      this.record(task, 'user_responded', '用户已处理 Codex 请求');
-      return task;
+      return this.finishApproval(task, fresh, response, { recycle });
     });
   }
 
+  setDnd(input) {
+    assert(input?.revision === this.dnd.revision, '设置已在其他面板更新，请刷新后重试', 409);
+    const next = validateDnd(input, this.dnd); next.revision = this.dnd.revision + 1;
+    this.store.transaction(() => {
+      this.store.setMeta('dndSettings', next);
+      this.store.event(null, 'dnd_settings_updated', '免打扰设置已更新', { data: { settings: next }, now: this.now() });
+    });
+    this.dnd = next; this.emit('change', { type: 'dnd_settings_updated' });
+    return this.dndSnapshot();
+  }
+
+  dndSnapshot() {
+    const records = this.store.records('approvals');
+    return { settings: this.dnd, enabledCount: DND_KEYS.filter(key => this.dnd[key]).length, recycleSupported: process.platform === 'win32',
+      autoApproved: records.filter(a => a.source === 'automatic' && a.status === 'answered').length,
+      recent: records.filter(a => a.source || a.status === 'pending').sort((a, b) => b.createdAt - a.createdAt).slice(0, 40) };
+  }
+
   async control(id, action, input = {}) {
+    if (action === 'stop') { this.getTask(id); this.pendingStops.add(id); this.nativeOperations.get(id)?.abort(); }
     return this.exclusive(id, async () => {
       const task = this.getTask(id);
       if (action === 'pause' || action === 'resume') {
@@ -615,7 +759,7 @@ export class Supervisor extends EventEmitter {
         task.stopRequested = true; task.status = 'stopped'; task.retryDueAt = null; task.retryPlan = null;
         this.record(task, 'stopped', '用户停止任务，已取消所有自动恢复计划');
         for (const approval of this.pendingApprovals(id)) {
-          approval.status = 'expired'; this.store.saveRecord('approvals', approval, id);
+          approval.status = 'expired'; this.store.saveRecord('approvals', approval, id); this.rawApprovals.delete(approval.id);
         }
         if (task.turnId && task.lastTerminalTurnId !== task.turnId) {
           try { await this.adapter.interrupt(task.threadId, task.turnId); }
@@ -631,7 +775,7 @@ export class Supervisor extends EventEmitter {
         assert(task.threadId, '尚无可接续的会话，请创建新任务', 409);
         const thread = await this.adapter.readThread(task.threadId);
         assert(thread.status?.type !== 'active' && (thread.turns?.at(-1)?.status !== 'inProgress' || task.abandonedTurnId === thread.turns.at(-1).id), '会话仍在运行或终态不明，不能续发', 409);
-        task.paused = false; task.stopRequested = false;
+        task.paused = false; task.stopRequested = false; task.approvalBlocked = false; this.pendingStops.delete(id);
         if (action === 'new_session') await this.replaceTask(task, true);
         else {
           task.incident = newIncident();
@@ -672,11 +816,13 @@ export class Supervisor extends EventEmitter {
       return { ...task, outputMonitor };
     });
     return { version: VERSION, mode: this.adapter.mode, connection: this.adapter.state, defaultCwd: process.cwd(),
-      defaultPolicy: this.defaultPolicy, tasks, alerts: this.store.records('alerts'),
+      defaultPolicy: this.defaultPolicy, dnd: this.dndSnapshot(), tasks, alerts: this.store.records('alerts'),
       approvals: this.store.records('approvals').filter(a => a.status === 'pending'), now: this.now(), faulted: this.faulted };
   }
   async close() {
+    this.closing = true;
     clearInterval(this.timer);
+    for (const controller of this.nativeOperations.values()) controller.abort();
     await Promise.allSettled([...this.queues.values()]);
     this.closed = true;
     for (const task of this.store.tasks().filter(item => BUSY.has(item.status))) {

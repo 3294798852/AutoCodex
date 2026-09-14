@@ -16,7 +16,7 @@
 - 实际 codexErrorInfo 使用 camelCase；可为字符串，或 `{"responseStreamDisconnected":{"httpStatusCode":null}}` 一类 tagged object。实现需要同时容忍文档中的大小写展示。
 - 非恢复分类包含 unauthorized、badRequest、sandboxError、contextWindowExceeded、sessionBudgetExceeded、usageLimitExceeded、cyberPolicy、misalignmentPolicyViolation。
 - 恢复分类包含 rateLimitExceeded、serverOverloaded、internalServerError 和四种连接/断流/retry 耗尽对象；HTTP 401/403 等优先分流到人工。
-- `thread/start` 支持 cwd、model、modelProvider、sandbox、approvalPolicy、serviceName；不依赖实验动态工具字段。
+- `thread/start` 支持 cwd、model、modelProvider、sandbox、approvalPolicy、serviceName；0.1–0.3 恢复核心不依赖动态工具，0.4 回收站入口使用实验 dynamicTools。
 - `ThreadStartResponse`、`ThreadResumeResponse` 都返回实际 model/modelProvider；`Thread` 也包含可用的历史模型信息。实现将实际选择持久化并传给后续恢复；移交历史会话时先采用已有上游标识，未指定模型时保留其历史模型。
 - `codex app-server --help` 确认支持 stdio；本机存在 daemon/proxy，但其存在不能证明可连接当前桌面进程并控制所有活动任务。
 - 本机还提供 `codex queue --thread <UUID或名称> --message <文本>` 和 `codex agents`。CLI 帮助将后者定位为共享 app-server daemon 的会话浏览器；首版不把这种显式共享路由等同于桌面全部任务的全局监听。
@@ -40,4 +40,14 @@
 - 已有 Codex 桌面活动任务的跨进程订阅/控制未由所读文档证明，首版只完整管理自己拥有的会话。
 - 未找到官方保证所有客户端均可打开的统一 thread 深链格式，因此不会伪造官方分享 URL。用户提供链接时保留原链接；否则用真实本机历史页链接与交接文件。
 - 不把 Codex CLI 的内置重试次数当作插件两次续发次数。
+
+## 0.4 批准协议与回收站实测（2026-09-14）
+
+已读取 [官方 App Server approvals](https://learn.chatgpt.com/docs/app-server#approvals)，并核对本机 CLI 0.153.4 实验 JSON schema：初始化 capabilities.experimentalApi=true；受管会话 approvalsReviewer=user。命令/文件仅答 decision=accept；文件权限响应 permissions 为确切请求的子集、scope=turn，未知字段、网络/特殊根权限留人工。该 reviewer 设置只用于受管会话，不修改全局配置。
+
+本机实际命令批准带 environmentId=local、完整 PowerShell 路径及转义的反斜线；availableDecisions 可能是 accept、永久规则对象和 cancel，未必有 decline。实现识别已知安装布局的 shell 完整路径，仅发单次允许，并在人工界面显示宿主实际可用的拒绝/取消选择。
+
+thread/start 的 dynamicTools 注册 autocodex_recycle；item/tool/call 请求包含 tool、arguments、callId、threadId、turnId，返回 success 和 contentItems。thread/resume 不能新增此注册，因此移交旧会话不保证有回收站工具。Windows 实测确认：工具注册、Codex 发起调用、自动批准、本机文件入回收站、执行结果返回测试上游；另以 git status --short 验证真实命令批准与执行，4 次本机模型协议请求、0 付费请求。
+
+记录：[真实批准报告](validation/dnd-codex-report.json)、[原生回收站及还原报告](validation/recycle-report.json)。本机夹具不覆盖真实付费模型选工具的概率、复杂客户端表单或未来 CLI 兼容性。
 - 真实模型生成测试会产生上游请求；首版默认验证使用演练/协议夹具及真实 CLI 无生成握手，后续集成结果单独记载。
