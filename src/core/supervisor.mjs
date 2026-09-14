@@ -1,5 +1,6 @@
 import { DND_LABELS, DND_KEYS, validateDnd, evaluateDnd } from './dnd-policy.mjs';
 import { ExistingSessions } from './existing-sessions.mjs';
+import { DesktopMonitor } from './desktop-monitor.mjs';
 import { ownershipError } from './ownership.mjs';
 import { prepareRecycle, recyclePaths } from './recycle.mjs';
 import { EventEmitter } from 'node:events';
@@ -49,7 +50,11 @@ export class Supervisor extends EventEmitter {
     for (const approval of store.records('approvals').filter(a => ['pending', 'sending'].includes(a.status))) {
       if (approval.status === 'sending') {
         const task = store.task(approval.taskId);
-        if (task) { task.approvalBlocked = true; this.alert(task, 'approval_uncertain', '服务重启时上次批准或回收结果未确认，请核对后手动处理'); }
+        if (task) {
+          task.approvalBlocked = true;
+          if (task.assist) task.assist.blocked = true;
+          this.alert(task, 'approval_uncertain', '服务重启时上次批准或回收结果未确认，请核对后手动处理', { preserveStatus: task.controlMode === 'observe' });
+        }
         approval.status = 'uncertain';
       } else approval.status = 'expired';
       store.saveRecord('approvals', approval, approval.taskId);
@@ -64,6 +69,7 @@ export class Supervisor extends EventEmitter {
         this.record(task, 'recovery_rules_upgraded', '已启用三次/五次错误判定和无输出计时；旧历史及累计次数保留');
       } else store.saveTask(task);
     }
+    this.desktop = new DesktopMonitor(this);
   }
 
   exclusive(id, fn) {
@@ -445,6 +451,7 @@ export class Supervisor extends EventEmitter {
   tick() {
     if (this.closed || this.faulted) return;
     this.existing.tick();
+    this.desktop.tick();
     for (const task of this.store.tasks()) {
       if (task.controlMode === 'observe') continue;
       if (task.paused || task.stopRequested || this.scheduled.has(task.id)) continue;
@@ -760,6 +767,11 @@ export class Supervisor extends EventEmitter {
     if (action === 'stop' && this.getTask(id).controlMode !== 'observe') { this.pendingStops.add(id); this.nativeOperations.get(id)?.abort(); }
     return this.exclusive(id, async () => {
       const task = this.getTask(id);
+      if (task.controlMode === 'observe' && action === 'policy') {
+        task.policy = validatePolicy(input.policy || {}, task.policy);
+        if (task.policy.strategy !== 'new_session' && this.store.action(task.assist?.actionId || null)?.kind === 'replace') this.desktop.cancel(task, '用户切换为人工处理');
+        this.record(task, 'policy_updated', '原任务恢复策略已更新'); return task;
+      }
       if (task.controlMode === 'observe') return this.existing.control(task, action, input);
       if (action === 'pause' || action === 'resume') {
         assert(action !== 'resume' || !task.outputMonitor.blocked, '长期无输出保护已触发，请核对当前回合后使用手动继续或新会话接续', 409);
@@ -826,7 +838,7 @@ export class Supervisor extends EventEmitter {
       return { ...task, outputMonitor };
     });
     return { version: VERSION, mode: this.adapter.mode, connection: this.adapter.state, defaultCwd: process.cwd(),
-      defaultPolicy: this.defaultPolicy, dnd: this.dndSnapshot(), tasks, alerts: this.store.records('alerts'),
+      defaultPolicy: this.defaultPolicy, dnd: this.dndSnapshot(), desktop: this.desktop.snapshot(), tasks, alerts: this.store.records('alerts'),
       approvals: this.store.records('approvals').filter(a => a.status === 'pending'), now: this.now(), faulted: this.faulted };
   }
   async close() {

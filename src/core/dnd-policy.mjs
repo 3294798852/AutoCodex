@@ -215,6 +215,11 @@ export function evaluateDnd({ request, item, task, settings }) {
       return allow(settings, ['confirmationPrompts'], { answers }, '关联工具的明确允许/拒绝确认');
     }
     if (request.method === 'mcpServer/elicitation/request') {
+      if (p.mode === 'form' && p._meta?.codex_approval_kind === 'mcp_tool_call'
+        && item?.type === 'mcpToolCall' && item.server === p.serverName && item.status === 'inProgress'
+        && JSON.stringify(item.arguments) === JSON.stringify(p._meta.tool_params)) {
+        return allow(settings, ['confirmationPrompts'], { action: 'accept', content: {} }, 'Codex 关联的确切 MCP 工具调用确认');
+      }
       const schema = p.requestedSchema;
       assert(p.mode === 'form' && schema?.type === 'object' && schema.properties && !schema.anyOf && !schema.oneOf && !schema.allOf && !schema.$ref, '授权流程或复杂表单需要人工');
       const entries = Object.entries(schema.properties);

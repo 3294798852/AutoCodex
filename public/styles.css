@@ -15,3 +15,7 @@
 
 .existing-filters{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.existing-filters input{flex:1;min-width:130px}.existing-list{max-height:55vh;overflow:auto}.existing-row{display:flex;align-items:center;justify-content:space-between;gap:15px;border-top:1px solid var(--line);padding:16px 2px}.existing-row>div{min-width:0}.existing-row strong{display:block;font-size:13px;overflow-wrap:anywhere}.existing-row small{display:block;overflow-wrap:anywhere;font-size:11px;margin-top:4px}.existing-row button{flex-shrink:0}.observation-info{display:block;overflow-wrap:anywhere;margin:16px 0;color:var(--muted)}.badge.active_recent{background:#17332c;color:#9ae1be}.badge.error,.badge.unavailable{background:#39262c;color:#efa4ab}.badge.unknown{background:#332c21;color:#e7bf84}.top-actions{flex-wrap:wrap;justify-content:flex-end}#existing-more{margin-top:14px}#empty-existing{margin-bottom:10px}
 @media(max-width:600px){.existing-row{align-items:flex-start;flex-direction:column}.existing-filters .button{width:100%}.top-actions{justify-content:flex-start;gap:8px}.topbar{flex-wrap:wrap}}
+ .desktop-assist { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 24px; margin: 12px 0; }
+ .desktop-assist .section-heading { flex-wrap: wrap; gap: 8px; }
+ .desktop-assist .settings-note { overflow-wrap: anywhere; }
+ @media(max-width:760px){.desktop-assist{padding:16px 18px}}

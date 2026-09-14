@@ -271,6 +271,17 @@ test('folders containing a repository or credential directory cannot be recycled
   assert.throws(() => prepareRecycle({ paths: [tmp.directory] }, task, all, join(process.cwd(), '.autocodex')), /版本记录/);
 });
 
+test('Codex MCP confirmation needs an exact running tool match and its own toggle', () => {
+  const item = { type: 'mcpToolCall', server: 'fixture', tool: 'ping', status: 'inProgress', arguments: { value: 1 } };
+  const request = { method: 'mcpServer/elicitation/request', params: { mode: 'form', serverName: 'fixture',
+    _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: { value: 1 } }, requestedSchema: { type: 'object', properties: {} } } };
+  assert(evaluateDnd({ task, settings: all, request, item }).automatic);
+  assert(!evaluateDnd({ task, settings: { ...all, confirmationPrompts: false }, request, item }).automatic);
+  assert(!evaluateDnd({ task, settings: all, request, item: { ...item, arguments: { value: 2 } } }).automatic);
+  assert(!evaluateDnd({ task, settings: all, request, item: { ...item, status: 'completed' } }).automatic);
+  assert(!evaluateDnd({ task, settings: all, request }).automatic);
+});
+
 for (const action of ['stop', 'disconnect', 'resolved']) test('in-flight recycle is cancelled on ' + action + ' and is never automatically repeated', { skip: process.platform !== 'win32' }, async t => {
   const h = await harness(t), task = await h.create(); enable(h);
   const file = join(h.directory, 'fixture.txt'); writeFileSync(file, 'fixture');

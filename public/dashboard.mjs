@@ -3,7 +3,8 @@ const $$ = selector => [...document.querySelectorAll(selector)];
 const labels = { starting: '启动中', running: '运行中', retry_wait: '等待恢复', recovering: '接续中', waiting_user: '等待用户', needs_attention: '需要处理', completed: '已完成', stopped: '已停止', failed: '接续已终止' };
 const busyStates = ['starting', 'running', 'recovering', 'waiting_user'];
 const observedLabels = { active_recent: '最近有活动', completed: '本回合已完成', interrupted: '本回合已中断', error: '记录了异常', waiting_user: '等待用户', unknown: '状态待确认', unavailable: '记录不可读' };
-const taskLabel = task => task.controlMode === 'observe' ? task.observation.enabled ? observedLabels[task.observation.phase] || '监测中' : '已停止监测' : labels[task.status] || task.status;
+const observedPhase = task => task.assist?.connected && ({ running: 'running', retry_wait: 'retry_wait', sending: 'recovering', waiting_user: 'waiting_user', attention: 'needs_attention', completed: 'completed', stopped: 'stopped', failed: 'error' }[task.assist.phase]) || task.observation.phase;
+const taskLabel = task => task.controlMode === 'observe' ? task.observation.enabled ? observedLabels[observedPhase(task)] || labels[observedPhase(task)] || '监测中' : '已停止监测' : labels[task.status] || task.status;
 let state, selectedId, currentView = 'monitor', detailTab = 'timeline', detailData, eventStream, refreshTimer, toastTimer;
 let requestVersion = 0, approvalSignature = '', operationBusy = false, seenAlerts = null;
 let installationSettings, installationBusy = false;
@@ -19,7 +20,7 @@ function time(value, full = false) {
   const date = new Date(value);
   return full ? date.toLocaleString('zh-CN', { hour12: false }) : date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
-function badge(task) { return element('span', `badge ${task.controlMode === 'observe' ? task.observation.enabled ? task.observation.phase : 'stopped' : task.paused ? 'paused' : task.status}`, task.paused ? `${taskLabel(task)} · 已暂停恢复` : taskLabel(task)); }
+function badge(task) { return element('span', `badge ${task.controlMode === 'observe' ? task.observation.enabled ? observedPhase(task) : 'stopped' : task.paused ? 'paused' : task.status}`, task.paused ? `${taskLabel(task)} · 已暂停恢复` : taskLabel(task)); }
 function currentTask() { return state?.tasks.find(task => task.id === selectedId); }
 function toast(text, error = false) {
   const node = $('#toast'); node.textContent = text; node.className = error ? 'toast error' : 'toast'; node.hidden = false;
@@ -114,11 +115,18 @@ function renderTaskDetail() {
   $('#detail-model').textContent = task.mode === 'demo' ? '模拟 Codex 会话' : task.model || 'Codex 默认模型';
   $('#detail-objective').textContent = task.prompt;
   const observe = task.controlMode === 'observe';
-  $('#managed-toolbar').hidden = observe; $('#managed-recovery').hidden = observe;
+  $('#managed-toolbar').hidden = observe; $('#managed-recovery').hidden = observe && !task.assist?.autoContinue;
   $('#observation-info').hidden = !observe; $('#observation-toolbar').hidden = !observe;
+  $('#desktop-assist').hidden = !observe;
   if (observe) {
     const o = task.observation;
-    $('#observation-info').textContent = `${o.enabled ? '正在跟踪原会话的本机记录。' : '监测已停止。'}最近活动：${time(o.lastActivityAt, true)}；最近检查：${time(o.checkedAt, true)}。${o.phase === 'unknown' ? '目前无法确认是否仍在执行，请结合原客户端查看。' : ''}${o.phase === 'error' ? task.lastError?.message || '' : ''}${o.readError || ''}${o.coverage || ''} 你可以继续在原 Codex 中使用；当前仅监测和告警，原客户端的自动续发与免打扰尚未接入。${o.lastControlError ? '上次移交未成功，监测状态已保留。' : ''}`;
+    $('#observation-info').textContent = `${o.enabled ? '正在跟踪原会话的本机记录。' : '监测已停止。'}最近活动：${time(o.lastActivityAt, true)}；最近检查：${time(o.checkedAt, true)}。${o.phase === 'unknown' ? '目前无法确认是否仍在执行，请结合原客户端查看。' : ''}${o.phase === 'error' ? task.lastError?.message || '' : ''}${o.readError || ''}${o.coverage || ''}${o.lastControlError ? '上次移交未成功，监测状态已保留。' : ''}`;
+    const a = task.assist || {}, phases = { running: '运行中', retry_wait: '等待续发', sending: '正在续发', waiting_user: '等待用户', attention: '需要核对', completed: '本轮完成', stopped: '已停止', failed: '本轮异常', idle: '已连接' };
+    $('#desktop-assist-status').textContent = !o.enabled ? '监测已停止' : !a.connected ? '未连接原窗口' : a.blocked ? '需要核对' : phases[a.phase] || '已连接';
+    $('#assist-continue').checked = !!a.autoContinue; $('#assist-approve').checked = !!a.autoApprove;
+    $('#assist-continue').disabled = operationBusy; $('#assist-approve').disabled = operationBusy;
+    $('#assist-reset').hidden = !a.blocked; $('#assist-reset').disabled = operationBusy;
+    $('#assist-detail').textContent = a.reason || (!a.connected ? '原桌面辅助连接未就绪' : `自动续发 ${task.totalAutoAttempts} 次 · 同类错误 ${task.incident.consecutiveSame}/${task.incident.threshold} · 已开启免打扰 ${state.dnd.enabledCount}/5`);
     $('#observation-toggle').textContent = o.enabled ? '停止监测' : '恢复监测';
     for (const selector of ['#observation-refresh', '#observation-toggle', '#observation-adopt']) $(selector).disabled = operationBusy;
     $('#observation-refresh').disabled ||= !o.enabled;
@@ -159,14 +167,18 @@ function renderTaskDetail() {
 function renderRetry() {
   const task = currentTask();
   if (!task) return;
-  if (task.controlMode === 'observe') { $('#retry-banner').hidden = true; return; }
   const monitor = task.outputMonitor;
   if (monitor) {
     const elapsed = Math.max(0, (monitor.suspendedAt ?? Date.now()) - monitor.sinceAt);
     $('#output-watch').textContent = monitor.blocked ? '长期无输出保护已触发：自动恢复保持停止，请核对后手动接续。'
-      : ['completed', 'stopped', 'failed', 'needs_attention'].includes(task.status) ? `最后有效输出：${time(monitor.lastEffectiveAt, true)}`
+      : ['completed', 'stopped', 'failed', 'needs_attention'].includes(task.status) || task.controlMode === 'observe' && !task.assist?.sessionActive ? `最后有效输出：${time(monitor.lastEffectiveAt, true)}`
       : `无有效输出 ${Math.floor(elapsed / 60000)} 分 ${Math.floor(elapsed / 1000) % 60} 秒 / ${task.policy.noOutputTimeoutMs / 60000} 分钟${monitor.suspendedAt !== null ? ' · 等待用户期间计时暂停' : ''}`;
     $('#output-watch').className = monitor.blocked ? 'recovery-note danger-text' : 'recovery-note';
+  }
+  if (task.controlMode === 'observe') {
+    $('#retry-banner').hidden = !task.assist?.dueAt || task.assist.blocked || !task.observation.enabled;
+    $('#retry-message').textContent = `${Math.max(0, Math.ceil(((task.assist?.dueAt || Date.now()) - Date.now()) / 1000))} 秒后在原 Codex 接续`;
+    return;
   }
   $('#retry-banner').hidden = task.status !== 'retry_wait';
   if (task.status !== 'retry_wait') return;
@@ -255,7 +267,10 @@ function renderAlerts() {
 }
 
 function renderApprovals(task) {
-  if (task.controlMode === 'observe') { $('#dnd-task-info').textContent = '原客户端负责权限处理；停止监测不会停止原会话。'; $('#approval-list').replaceChildren(); return; }
+  if (task.controlMode === 'observe') {
+    $('#dnd-task-info').textContent = `原窗口自动批准 ${task.totalAutoApprovals || 0} 次 · ${task.assist?.connected ? '回收站工具已接入' : '辅助连接未就绪'}`;
+    $('#approval-list').replaceChildren(); return;
+  }
   $('#dnd-task-info').textContent = '免打扰自动处理 ' + (task.totalAutoApprovals || 0) + ' 次 · 回收站工具' + (task.recycleToolAvailable ? '已接入' : state.mode === 'demo' ? '仅演练' : '需在本版本新建会话接入');
   const requests = state.approvals.filter(request => request.taskId === task.id);
   const signature = `${task.id}:${requests.map(request => request.id).join(',')}`;
@@ -452,6 +467,16 @@ $('#existing-search-form').addEventListener('submit', event => { event.preventDe
 $('#existing-archive').addEventListener('change', () => void loadExisting());
 $('#existing-more').addEventListener('click', () => void loadExisting(true));
 $('#observation-refresh').addEventListener('click', () => void control('observe_refresh'));
+async function saveAssist(input) {
+  const task = currentTask(); if (!task || operationBusy) return;
+  operationBusy = true;
+  try { await api(`/tasks/${task.id}/assist`, { revision: task.assist?.revision || 0, ...input }); await refresh(); }
+  catch (error) { toast(error.message, true); await refresh(); }
+  finally { operationBusy = false; renderTaskDetail(); }
+}
+$('#assist-continue').addEventListener('change', event => void saveAssist({ autoContinue: event.target.checked }));
+$('#assist-approve').addEventListener('change', event => void saveAssist({ autoApprove: event.target.checked }));
+$('#assist-reset').addEventListener('click', () => void saveAssist({ reset: true }));
 $('#observation-toggle').addEventListener('click', () => void control(currentTask().observation.enabled ? 'observe_stop' : 'observe_start'));
 $('#observation-adopt').addEventListener('click', () => {
   adoptTaskId = selectedId; $('#adopt-form').reset(); $('#adopt-error').textContent = currentTask().observation.lastControlError?.message || '';

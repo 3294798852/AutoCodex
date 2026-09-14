@@ -1,0 +1,23 @@
+{
+  "testedAt": "2026-09-14T15:50:54.389Z",
+  "desktopVersion": "26.908.4834.0",
+  "codexVersion": "0.153.4",
+  "scope": "Actual isolated Windows Codex desktop with native relay and local fixture provider",
+  "checks": [
+    "Desktop log confirms CODEX_CLI_PATH launches AutoCodexRelay.exe",
+    "Original thread: one HTTP 503 followed by one automatic continuation and successful completion",
+    "Read-only git status request automatically approved; result visible in original desktop",
+    "Unsent draft remains byte-for-byte visible while automatic continuation completes",
+    "Initial failure plus two failed continues creates a new task in the original desktop sidebar",
+    "Replacement receives handoff and completes without navigating the currently viewed task",
+    "Isolated fixture process stopped after verifying its unique user-data-dir; original desktop process remained running"
+  ],
+  "localRequests": 11,
+  "paidModelRequests": 0,
+  "automaticContinues": 4,
+  "automaticApprovals": 1,
+  "replacementTasks": 1,
+  "finalPhase": "completed",
+  "evidenceImage": "../assets/desktop-draft-preserved.png",
+  "notes": "UIA accessibility data lagged rendered content; screenshots and persisted monitor/rollout state were used together. Current user conversation received no test input."
+}

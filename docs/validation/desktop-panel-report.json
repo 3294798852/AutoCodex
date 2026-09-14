@@ -1,0 +1,12 @@
+{
+  "testedAt": "2026-09-14T16:01:41.353Z",
+  "checks": [
+    "independent switches persist across reload without acquiring a writer",
+    "live relay failure, SSE update and retry countdown",
+    "disabling continuation cancels the plan independently of automatic approval",
+    "1440px and 390px layouts, no horizontal overflow",
+    "stopping observation does not interrupt the original conversation"
+  ],
+  "browserErrors": [],
+  "scope": "isolated monitor fixture with real HTTP, SSE and browser; no model requests"
+}

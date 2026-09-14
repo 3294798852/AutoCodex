@@ -81,7 +81,7 @@ test('task_complete containing a failure stays error even after final usage reco
 
 test('stop monitoring does not interrupt original thread; restore reads missed events and managed controls reject', async t => {
   const h = await fixture(t);
-  for (const action of ['stop', 'continue', 'pause', 'new_session', 'policy', 'adopt']) await assert.rejects(h.supervisor.control(h.taskId, action), /观察|确认/);
+  for (const action of ['stop', 'continue', 'pause', 'new_session', 'adopt']) await assert.rejects(h.supervisor.control(h.taskId, action), /观察|确认/);
   await h.supervisor.control(h.taskId, 'observe_stop');
   h.append('task_complete', { turn_id: 'one' }); await h.poll();
   assert.equal(h.store.task(h.taskId).observation.phase, 'active_recent');

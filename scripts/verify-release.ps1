@@ -11,7 +11,7 @@ try {
     if (-not $inventoryEntry) { throw 'Missing hash inventory' }
     $reader = [System.IO.StreamReader]::new($inventoryEntry.Open())
     try { $inventory = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
-    foreach ($required in @('.codex-plugin/plugin.json', '.mcp.json', 'scripts/bridge.mjs', 'runtime/src/main.mjs', 'runtime/src/adapters/codex-discovery.mjs', 'runtime/src/server/codex-settings.mjs', 'runtime/src/core/dnd-policy.mjs', 'runtime/src/core/recycle.mjs', 'runtime/src/native/recycle.ps1', 'Start-AutoCodex.ps1', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'docs/09-user-guide.md', 'docs/10-installation-design.md', 'docs/12-dnd-requirements.md', 'docs/13-dnd-implementation.md')) {
+    foreach ($required in @('.codex-plugin/plugin.json', '.mcp.json', 'scripts/bridge.mjs', 'runtime/src/main.mjs', 'runtime/src/adapters/codex-discovery.mjs', 'runtime/src/server/codex-settings.mjs', 'runtime/src/core/dnd-policy.mjs', 'runtime/src/core/recycle.mjs', 'runtime/src/native/recycle.ps1', 'runtime/native/AutoCodexRelay.exe', 'runtime/src/desktop/main.mjs', 'runtime/src/desktop/recycle-server.mjs', 'Start-AutoCodex.ps1', 'Start-AutoCodexDesktop.ps1', 'Start-AutoCodexDesktop.cmd', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'docs/09-user-guide.md', 'docs/10-installation-design.md', 'docs/12-dnd-requirements.md', 'docs/13-dnd-implementation.md', 'docs/17-desktop-relay.md')) {
         if (-not $archive.GetEntry($prefix + $required)) { throw "Missing archive member: $required" }
     }
     $reader = [System.IO.StreamReader]::new($archive.GetEntry($prefix + '.mcp.json').Open())
@@ -44,7 +44,7 @@ function Invoke-Launcher([string]$Script, [string[]]$LaunchArgs) {
     $parameters = @{}
     for ($index = 0; $index -lt $LaunchArgs.Count; $index++) {
         $name = $LaunchArgs[$index].TrimStart('-')
-        if ($name -in @('Demo', 'NoBrowser', 'Foreground', 'CheckCodex')) { $parameters[$name] = $true }
+        if ($name -in @('Demo', 'NoBrowser', 'Foreground', 'CheckCodex', 'CheckOnly')) { $parameters[$name] = $true }
         else { $index++; $parameters[$name] = $LaunchArgs[$index] }
     }
     & (Join-Path $script:packageDirectory $Script) @parameters
@@ -106,6 +106,20 @@ if ($WithCodex) {
     if (-not $automatic.ok) { throw 'Real Codex required for -WithCodex' }
     $runtime = @{ command = $automatic.path; args = @() }
     if ($automatic.kind -eq 'npm-launcher') { $runtime.command = $nodeExecutable; $runtime.args = @($automatic.path) }
+    Invoke-Launcher 'Start-AutoCodexDesktop.ps1' @('-CheckOnly', '-DataDir', $liveData) | Out-Null
+    $relayConfig = Join-Path $extractDirectory '转接配置.json'
+    [IO.File]::WriteAllText($relayConfig, (@{ codex = $runtime.command; codexArgs = $runtime.args } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+    $relayVariables = @('AUTOCODEX_RELAY_CONFIG', 'AUTOCODEX_RELAY_NODE', 'AUTOCODEX_RELAY_SCRIPT')
+    $previousRelayEnvironment = @{}
+    foreach ($name in $relayVariables) { $previousRelayEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+    try {
+        $env:AUTOCODEX_RELAY_CONFIG = $relayConfig
+        $env:AUTOCODEX_RELAY_NODE = $nodeExecutable
+        $env:AUTOCODEX_RELAY_SCRIPT = Join-Path $packageDirectory 'runtime\src\desktop\main.mjs'
+        $relayVersion = & (Join-Path $packageDirectory 'runtime\native\AutoCodexRelay.exe') --version
+        if ($LASTEXITCODE -ne 0 -or $relayVersion -notmatch 'codex') { throw 'Relocated native relay did not forward --version' }
+    } finally { foreach ($name in $relayVariables) { [Environment]::SetEnvironmentVariable($name, $previousRelayEnvironment[$name], 'Process') } }
+    $report.desktopDiscovery = 'passed'; $report.nativeRelayUnicodeRelocation = 'passed'; $report.desktopLauncherPackaged = 'passed'
     $runtimeJson = $runtime | ConvertTo-Json -Compress
     # A JS entry point in a Unicode/space directory delegates to the installed
     # real CLI. Only command/argv are embedded; never copy credentials or env.

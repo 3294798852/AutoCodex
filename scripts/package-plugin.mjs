@@ -13,8 +13,13 @@ mkdirSync(output, { recursive: true });
 for (const component of ['.codex-plugin', 'scripts', 'skills']) cpSync(join(project, 'plugins', 'autocodex-guard', component), join(output, component), { recursive: true });
 const runtime = join(output, 'runtime'); mkdirSync(runtime, { recursive: true });
 for (const directory of ['src', 'public']) cpSync(join(project, directory), join(runtime, directory), { recursive: true });
+if (process.platform === 'win32') {
+  const built = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(project, 'scripts', 'build-desktop.ps1'), '-OutputDirectory', join(runtime, 'native')],
+    { encoding: 'utf8', windowsHide: true, shell: false });
+  if (built.status !== 0) throw new Error(built.stderr || built.stdout || 'Desktop relay build failed');
+}
 writeFileSync(join(runtime, 'package.json'), JSON.stringify({ name: 'autocodex-guard-runtime', version, private: true, type: 'module', engines: { node: '>=24.0.0' }, scripts: { start: 'node src/main.mjs', demo: 'node src/main.mjs --demo', 'diagnose:codex': 'node src/main.mjs --diagnose-codex' } }, null, 2));
-for (const filename of ['Start-AutoCodex.ps1', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'README.md', 'PROJECT_STATE.md']) cpSync(join(project, filename), join(output, filename));
+for (const filename of ['Start-AutoCodex.ps1', 'Start-AutoCodexDesktop.ps1', 'Start-AutoCodexDesktop.cmd', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'README.md', 'PROJECT_STATE.md']) cpSync(join(project, filename), join(output, filename));
 cpSync(join(project, 'docs'), join(output, 'docs'), { recursive: true });
 
 // A distribution has no machine-specific MCP wiring. The startup/configuration

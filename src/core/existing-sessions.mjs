@@ -113,7 +113,8 @@ export class ExistingSessions {
       if (baseline || batch.reset || evidence.kind === 'activity') continue;
       if (!this.s.store.receipt(`observation:${task.id}:${key}`, now)) continue;
       const messages = { started: '原会话开始新回合', completed: '原会话已明确完成本回合', interrupted: '原会话记录了中断', waiting_user: '原会话正在等待用户处理', output: '原会话输出已更新' };
-      if (evidence.error) this.s.alert(task, 'observed_error', `原会话记录异常：${redact(evidence.error.message, 300)}；请在原客户端核对`, { preserveStatus: true });
+      if (evidence.error && task.assist?.connected && task.assist.autoContinue) this.s.record(task, 'observed_error', `原会话记录异常：${redact(evidence.error.message, 300)}`, { level: 'warning' });
+      else if (evidence.error) this.s.alert(task, 'observed_error', `原会话记录异常：${redact(evidence.error.message, 300)}；请在原客户端核对`, { preserveStatus: true });
       else if (evidence.kind === 'tool' && evidence.failed) this.s.record(task, 'observed_tool_failure', `${evidence.title}失败；继续观察会话后续处理`, { level: 'warning' });
       else if (messages[evidence.kind]) this.s.record(task, `observed_${evidence.kind}`, messages[evidence.kind], { now: evidence.at });
     }
@@ -162,6 +163,7 @@ export class ExistingSessions {
     if (action === 'observe_stop' || action === 'observe_start') {
       if (action === 'observe_start' && !o.enabled) this.countCheck();
       o.enabled = action === 'observe_start'; task.status = o.enabled ? 'observing' : 'stopped';
+      if (!o.enabled) this.s.desktop.cancel(task, '用户停止监测');
       this.s.record(task, action, o.enabled ? '已恢复原会话监测' : '已停止监测；原会话继续由原客户端管理');
       if (o.enabled) await this.poll(task.id);
     } else if (action === 'observe_refresh') await this.poll(task.id);

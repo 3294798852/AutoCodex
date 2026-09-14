@@ -44,8 +44,12 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
   const connectionPath = join(supervisor.store.directory, 'connection.json');
   let token = randomBytes(32).toString('hex');
   let pluginToken = randomBytes(32).toString('hex');
+  let relayToken = randomBytes(32).toString('hex');
   if (existsSync(connectionPath)) {
     try { const saved = JSON.parse(readFileSync(connectionPath, 'utf8')); if (/^[a-f0-9]{64}$/.test(saved.token)) token = saved.token; if (/^[a-f0-9]{64}$/.test(saved.pluginToken)) pluginToken = saved.pluginToken; } catch { /* A new token replaces an invalid local connection file. */ }
+  }
+  if (existsSync(connectionPath)) {
+    try { const saved = JSON.parse(readFileSync(connectionPath, 'utf8')); if (/^[a-f0-9]{64}$/.test(saved.relayToken)) relayToken = saved.relayToken; } catch { /* Invalid local credentials are regenerated. */ }
   }
   const clients = new Set();
   const backpressure = new Map();
@@ -60,6 +64,7 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
     const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null;
     const cookie = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('autocodex_session='))?.slice('autocodex_session='.length);
     if (constantEqual(bearer, token) || constantEqual(cookie, token)) return 'admin';
+    if (constantEqual(bearer, relayToken)) return 'relay';
     return constantEqual(bearer, pluginToken) ? 'plugin' : null;
   };
 
@@ -121,6 +126,12 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
       }
       const role = authorized(req);
       assert(role, '需要本机访问口令，请通过启动器打开面板', 401);
+      if (path === '/api/v1/desktop/poll' || path === '/api/v1/desktop/approval') {
+        assert(role === 'relay' && req.method === 'POST', '需要本机桌面辅助连接', 403);
+        const input = await body(req);
+        send(res, 200, path.endsWith('/poll') ? await supervisor.desktop.poll(input) : await supervisor.desktop.approve(input)); return;
+      }
+      assert(role !== 'relay', '桌面辅助连接只允许监测事件与本次动作', 403);
       if (role === 'plugin') {
         const permitted = req.method === 'GET' && (path === '/api/v1/state' || /^\/api\/v1\/(tasks|handoffs|history)\/[a-zA-Z0-9_-]+$/.test(path))
           || req.method === 'POST' && /^\/api\/v1\/tasks\/[a-zA-Z0-9_-]+\/checkpoint$/.test(path);
@@ -156,7 +167,7 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
         if (supervisor.adapter.mode === 'demo') assert(SCENARIOS.some(s => s.id === (input.scenario || 'intermittent')), '未知演练场景');
         send(res, 201, await supervisor.createTask(input)); return;
       }
-      const taskRoute = path.match(/^\/api\/v1\/tasks\/([a-zA-Z0-9_-]+)(?:\/(control|checkpoint))?$/);
+      const taskRoute = path.match(/^\/api\/v1\/tasks\/([a-zA-Z0-9_-]+)(?:\/(control|checkpoint|assist))?$/);
       if (taskRoute) {
         const [, id, action] = taskRoute;
         if (req.method === 'GET' && !action) {
@@ -165,6 +176,7 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
             handoffs: supervisor.store.records('handoffs', id) }); return;
         }
         if (req.method === 'POST' && action === 'control') { const input = await body(req); send(res, 200, await supervisor.control(id, input.action, input)); return; }
+        if (req.method === 'POST' && action === 'assist') { send(res, 200, await supervisor.desktop.configure(id, await body(req))); return; }
         if (req.method === 'POST' && action === 'checkpoint') { const input = await body(req); send(res, 200, supervisor.checkpoint(id, input.text)); return; }
       }
       const historyRoute = path.match(/^\/api\/v1\/history\/([a-zA-Z0-9_-]+)$/);
@@ -219,7 +231,7 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
       host = `127.0.0.1:${server.address().port}`;
       origin = `http://${host}`;
       supervisor.origin = origin;
-      const connection = { origin, token, pluginToken, mode: supervisor.adapter.mode, pid: process.pid };
+      const connection = { origin, token, pluginToken, relayToken, mode: supervisor.adapter.mode, pid: process.pid };
       writeFileSync(connectionPath, JSON.stringify(connection, null, 2), { mode: 0o600, flush: true });
       const launchUrl = `${origin}/#token=${token}`;
       const launchPath = join(supervisor.store.directory, 'open-panel.html');

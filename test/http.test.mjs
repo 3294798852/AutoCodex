@@ -18,6 +18,19 @@ async function fixture(t) {
   return { ...h, http, address, connection, request };
 }
 
+test('relay credential is isolated from management and plugin credentials cannot drive desktop actions', async t => {
+  const h = await fixture(t), path = '/api/v1/desktop/poll';
+  const post = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ relayId: 'fixture-relay', threads: [], events: [] }) };
+  assert.equal((await h.request(path, post)).status, 403);
+  assert.equal((await h.request(path, { ...post, plugin: true })).status, 403);
+  const headers = { ...post.headers, Authorization: `Bearer ${h.connection.relayToken}` };
+  assert.equal((await h.request(path, { ...post, headers })).status, 200);
+  assert.equal((await h.request('/api/v1/state', { headers })).status, 403);
+  assert.equal((await h.request('/api/v1/dnd', { ...post, headers })).status, 403);
+  assert.equal((await h.request(path, { ...post, headers: { ...headers, Origin: 'https://example.test' } })).status, 403);
+  const snapshot = await (await h.request('/api/v1/state')).text(); assert(!snapshot.includes(h.connection.relayToken));
+});
+
 test('existing conversation API lists and monitors without sending; cross-site and plugin control stay denied', async t => {
   const h = await fixture(t), id = 'external-http', path = join(h.directory, 'rollout.jsonl');
   const meta = { id, path, name: 'HTTP existing', cwd: h.directory, updatedAt: Date.now() / 1000 };
