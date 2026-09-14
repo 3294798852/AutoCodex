@@ -1,5 +1,15 @@
 # AutoCodex 验证报告
 
+## 0.4.1 本地文件启动入口修复
+
+日期：2026-09-14。用户反馈启动即显示“不接受跨站请求”；浏览器从服务生成的 open-panel.html 跳转可复现 HTTP 403。先前 UI 测试直接打开 HTTP URL，未覆盖本地文件跳转。
+
+修复仅允许公开 HTML 的顶层 GET 导航携带跨站标记，页面不含任何运行口令或任务数据；API、认证交换、资源和 iframe 请求保持跨站拦截，Host/Origin 校验和 SameSite=Strict 不变。6 项 HTTP/MCP/SSE 测试通过，包含新增的导航与权限边界用例；43 个模块与 JSON 语法检查、插件 manifest 校验通过。
+
+新增真实浏览器验证：从实际本地 HTML 启动，收到 cross-site/navigate/document 的 200 响应，成功换取会话、清除 URL 口令、读取状态并刷新；没有口令的新浏览器仍需认证。零页面异常，0 模型请求。[入口浏览器报告](validation/launcher-ui-report.json)。用户当前空闲服务已从源码重启到 0.4.1，自动发现 Codex 成功；设置与数据保留。
+
+发布包为 dist/autocodex-guard-0.4.1.zip，复用 SHA256SUMS.json 和 scripts/verify-release.ps1 的解压/搬迁启动校验。0.4.0 的功能验证继续保留在下方，本次未重复付费上游或故障注入测试。
+
 ## 0.4.0 免打扰权限自动批准验证
 
 日期：2026-09-14；Windows 11（10.0.26200）；Node.js 24.18.0；Codex CLI 0.153.4。

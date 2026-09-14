@@ -98,10 +98,14 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
   const server = createServer(async (req, res) => {
     try {
       assert(req.headers.host === host, '不接受此主机名', 403);
-      assert(!req.headers.origin || req.headers.origin === origin, '不接受跨站请求', 403);
-      assert(!['cross-site'].includes(req.headers['sec-fetch-site']), '不接受跨站请求', 403);
       const url = new URL(req.url, origin);
       const path = url.pathname;
+      const panelDocument = path === '/' || path === '/index.html' || /^\/history\/[a-zA-Z0-9_-]+$/.test(path);
+      // Opening our local HTML launcher is a cross-site top-level navigation.
+      // Only the public HTML shell may load this way; API, session and asset requests retain the checks.
+      const publicNavigation = req.method === 'GET' && panelDocument && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
+      assert(!req.headers.origin || req.headers.origin === origin, '不接受跨站请求', 403);
+      assert(req.headers['sec-fetch-site'] !== 'cross-site' || publicNavigation, '不接受跨站请求', 403);
       if (req.method === 'GET' && (assets.has(path) || /^\/history\/[a-zA-Z0-9_-]+$/.test(path))) {
         const [file, mime] = assets.get(path) || assets.get('/');
         res.writeHead(200, { ...headers, 'Content-Type': mime });

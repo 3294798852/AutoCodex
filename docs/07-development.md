@@ -20,7 +20,9 @@ docs/           分阶段设计、证据、运维和验收
 
 ## API v1
 
-监听 `127.0.0.1`。管理接口接受 Bearer 口令或 HttpOnly SameSite=Strict cookie。浏览器从 URL fragment 交换 cookie 后清除 fragment。跨源 Origin、异常 Host、超大/非 JSON 请求均拒绝。禁止远程跨域、外部脚本和 frame 嵌入。
+监听 `127.0.0.1`。管理接口接受 Bearer 口令或 HttpOnly SameSite=Strict cookie。浏览器从 URL fragment 交换 cookie 后清除 fragment。跨源 Origin、异常 Host、超大/非 JSON 请求均拒绝。仅公开页面 HTML 的顶层 GET 导航允许 Sec-Fetch-Site=cross-site，使本地 open-panel.html 跳转正常工作；API、认证交换、资源跨站请求和 iframe 不适用此例外。禁止远程跨域、外部脚本和 frame 嵌入。
+
+启动入口回归：`npm run smoke:ui-launch` 在浏览器中打开服务实际生成的本地 HTML 文件，经过 meta refresh、口令交换、页面刷新后验证正常访问。它不直接跳到 HTTP URL，不创建模型任务；浏览器依赖配置与其他 UI 测试相同。
 
 | 方法与路径 | 功能 |
 |---|---|

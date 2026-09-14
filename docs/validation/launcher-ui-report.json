@@ -1,0 +1,26 @@
+{
+  "testedAt": "2026-09-14T11:11:05.669Z",
+  "version": "0.4.1",
+  "checks": [
+    "generated local launcher redirects and authenticates without a 403",
+    "same-origin API session works without creating model work",
+    "reload keeps the authenticated dashboard usable",
+    "direct entry without a token still requires authentication"
+  ],
+  "launcherNavigation": [
+    {
+      "status": 200,
+      "site": "cross-site",
+      "mode": "navigate",
+      "destination": "document"
+    },
+    {
+      "status": 200,
+      "site": "same-origin",
+      "mode": "navigate",
+      "destination": "document"
+    }
+  ],
+  "browserErrors": [],
+  "modelRequests": 0
+}

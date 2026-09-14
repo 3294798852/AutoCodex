@@ -37,6 +37,33 @@ test('loopback API enforces authentication, Origin, Host, body limit and plugin 
   const state = await (await h.request('/api/v1/state')).text(); assert(!state.includes(h.connection.token)); assert(!state.includes(h.connection.pluginToken));
 });
 
+test('local-file document navigation can open the public panel while cross-site API and embedded requests stay blocked', async t => {
+  const h = await fixture(t);
+  const navigation = { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
+  // Node fetch overwrites Sec-Fetch-Mode; raw HTTP reproduces browser navigation metadata.
+  const request = (path, { method = 'GET', headers = {}, body } = {}) => new Promise((resolve, reject) => {
+    const req = rawRequest(h.address.origin + path, { method, headers: { ...navigation, ...headers } }, res => {
+      let body = ''; res.setEncoding('utf8'); res.on('data', part => { body += part; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+    }); req.on('error', reject); req.end(body);
+  });
+  for (const path of ['/', '/index.html', '/history/fixture-thread']) {
+    const response = await request(path);
+    assert.equal(response.status, 200, path); assert(response.headers['content-type'].includes('text/html'));
+    assert(!response.body.includes(h.connection.token)); assert(!response.body.includes(h.connection.pluginToken));
+    assert.equal(response.headers['x-frame-options'], 'DENY');
+  }
+  const authenticated = { Authorization: 'Bearer ' + h.connection.token };
+  assert.equal((await request('/api/v1/state', { headers: authenticated })).status, 403);
+  assert.equal((await request('/api/v1/events', { headers: authenticated })).status, 403);
+  assert.equal((await request('/api/v1/dnd', { method: 'POST', headers: { ...authenticated, 'Content-Type': 'application/json' }, body: '{"revision":0,"commonCommands":true}' })).status, 403);
+  assert.equal(h.supervisor.dnd.commonCommands, false);
+  assert.equal((await request('/', { headers: { 'Sec-Fetch-Dest': 'iframe' } })).status, 403);
+  assert.equal((await request('/', { headers: { 'Sec-Fetch-Mode': 'cors' } })).status, 403);
+  assert.equal((await request('/dashboard.mjs')).status, 403);
+  assert.equal((await request('/api/v1/session', { method: 'POST', headers: { Origin: 'null', 'Content-Type': 'application/json' }, body: JSON.stringify({ token: h.connection.token }) })).status, 403);
+});
+
 test('SSE initial snapshot and mutations arrive in under one second', async t => {
   const h = await fixture(t), abort = new AbortController();
   t.after(() => abort.abort());

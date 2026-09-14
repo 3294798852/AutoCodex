@@ -1,6 +1,12 @@
 # AutoCodex 项目接续记录
 
-更新：2026-09-14；当前版本：0.4.0；本轮状态：P9 免打扰需求、实现、集成验收和发布验证完成。
+更新：2026-09-14；当前版本：0.4.1；本轮状态：启动入口跨站误拦已修复；P9 免打扰功能保留。
+
+## P10 本地启动入口修复
+
+用户从 Start-AutoCodex.ps1 打开面板立刻收到“不接受跨站请求”。实测本地 open-panel.html 的 meta refresh 会发送 Sec-Fetch-Site=cross-site、mode=navigate、dest=document；原全局校验误拦页面，过去浏览器测试直接打开 HTTP URL，未覆盖该链路。
+
+现只对公开 HTML 顶层 GET 导航放行此标记，Host/Origin、API、认证交换、资源和嵌入页面校验保持。新增 HTTP 边界测试与 scripts/ui-launch-smoke.mjs，从实际生成的本地文件验证跳转、认证、刷新和无口令访问。已重启用户源码目录下的空闲真实服务并重新打开面板，版本 0.4.1；任务为空、本机 CLI 自动发现成功，既有数据与本机生成的插件配置保留。发布包为 dist/autocodex-guard-0.4.1.zip；证据见 docs/06-validation.md 和 docs/validation/launcher-ui-report.json。
 
 ## P9 免打扰权限自动批准
 
