@@ -56,6 +56,10 @@ try {
   const summary = await reader.readThreadSummary(thread.id);
   const eventTypes = [...new Set(readFileSync(summary.path, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.type === 'event_msg').map(r => r.payload.type))];
   assert.equal(requests, 2); assert.equal((await reader.client.request('thread/loaded/list', {})).data.length, 0);
+  await assert.rejects(supervisor.control(observed.id, 'adopt', { ownershipConfirmed: true }), e => e.code === 'thread_in_use' && e.status === 409);
+  assert.equal(store.task(observed.id).controlMode, 'observe'); assert.equal(store.task(observed.id).observation.enabled, true);
+  assert.equal(requests, 2); assert.equal((await reader.client.request('thread/loaded/list', {})).data.length, 0);
+  checks.push('takeover of an idle but owned conversation returns Chinese 409 while monitoring and original writer remain intact');
   const report = { testedAt: new Date().toISOString(), checks, localRequests: requests, paidModelRequests: 0, observedFailurePhase: store.task(observed.id).observation.phase, observedAlerts: store.records('alerts').map(a => a.code), eventTypes, readerLoadedThreads: 0 };
   writeFileSync('docs/validation/existing-codex-report.json', JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
 } catch (error) { console.error(JSON.stringify({ root, error: error.message, observation: observed ? store.task(observed.id).observation : null })); throw error; }

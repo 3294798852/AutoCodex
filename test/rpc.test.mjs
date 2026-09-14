@@ -19,6 +19,17 @@ test('effective Codex model and provider survive thread creation and resume', as
   assert.equal(requests[1].params.approvalPolicy, 'on-request');
 });
 
+test('resume translates only definite active-writer errors and does not mark the thread loaded', async () => {
+  const adapter = new CodexAdapter();
+  let failure = Object.assign(new Error('thread thread-1 already has an active writer'), { code: -32600 });
+  adapter.client = { connected: true, async request() { throw failure; } };
+  await assert.rejects(adapter.resumeThread({ threadId: 'thread-1' }), e => e.code === 'thread_in_use' && e.status === 409);
+  assert.equal(adapter.loaded.size, 0);
+  failure = Object.assign(new Error('response timeout'), { uncertain: true, code: 'rpc_timeout' });
+  await assert.rejects(adapter.resumeThread({ threadId: 'thread-1' }), e => e === failure);
+  assert.equal(adapter.loaded.size, 0);
+});
+
 test('real child-process JSONL supports fragmented UTF-8, errors and bidirectional approvals', async t => {
   const rpc = new JsonlRpcClient({ command: process.execPath, args: [resolve('test/fixtures/app-server.mjs')], timeoutMs: 1000 });
   t.after(() => rpc.close());

@@ -28,7 +28,7 @@ function toast(text, error = false) {
 async function api(path, data) {
   const response = await fetch(`/api/v1${path}`, data === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
   const result = await response.json();
-  if (!response.ok) { const error = new Error(result.error || '操作失败'); error.status = response.status; throw error; }
+  if (!response.ok) { const error = new Error(result.error || '操作失败'); error.status = response.status; error.code = result.code; throw error; }
   return result;
 }
 async function refresh() { renderState(await api('/state')); }
@@ -118,7 +118,7 @@ function renderTaskDetail() {
   $('#observation-info').hidden = !observe; $('#observation-toolbar').hidden = !observe;
   if (observe) {
     const o = task.observation;
-    $('#observation-info').textContent = `${o.enabled ? '正在跟踪原会话的本机记录。' : '监测已停止。'}最近活动：${time(o.lastActivityAt, true)}；最近检查：${time(o.checkedAt, true)}。${o.phase === 'unknown' ? '目前无法确认是否仍在执行，请结合原客户端查看。' : ''}${o.phase === 'error' ? task.lastError?.message || '' : ''}${o.readError || ''}${o.coverage || ''} 自动续发和免打扰需先移交控制。`;
+    $('#observation-info').textContent = `${o.enabled ? '正在跟踪原会话的本机记录。' : '监测已停止。'}最近活动：${time(o.lastActivityAt, true)}；最近检查：${time(o.checkedAt, true)}。${o.phase === 'unknown' ? '目前无法确认是否仍在执行，请结合原客户端查看。' : ''}${o.phase === 'error' ? task.lastError?.message || '' : ''}${o.readError || ''}${o.coverage || ''} 你可以继续在原 Codex 中使用；当前仅监测和告警，原客户端的自动续发与免打扰尚未接入。${o.lastControlError ? '上次移交未成功，监测状态已保留。' : ''}`;
     $('#observation-toggle').textContent = o.enabled ? '停止监测' : '恢复监测';
     for (const selector of ['#observation-refresh', '#observation-toggle', '#observation-adopt']) $(selector).disabled = operationBusy;
     $('#observation-refresh').disabled ||= !o.enabled;
@@ -454,7 +454,7 @@ $('#existing-more').addEventListener('click', () => void loadExisting(true));
 $('#observation-refresh').addEventListener('click', () => void control('observe_refresh'));
 $('#observation-toggle').addEventListener('click', () => void control(currentTask().observation.enabled ? 'observe_stop' : 'observe_start'));
 $('#observation-adopt').addEventListener('click', () => {
-  adoptTaskId = selectedId; $('#adopt-form').reset(); $('#adopt-error').textContent = '';
+  adoptTaskId = selectedId; $('#adopt-form').reset(); $('#adopt-error').textContent = currentTask().observation.lastControlError?.message || '';
   $('#adopt-name').textContent = currentTask().name; $('#adopt-dialog').showModal();
 });
 $('#adopt-form').addEventListener('submit', async event => {
@@ -462,7 +462,10 @@ $('#adopt-form').addEventListener('submit', async event => {
   try {
     await api(`/tasks/${adoptTaskId}/control`, { action: 'adopt', ownershipConfirmed: $('#adopt-confirm').checked, message: $('#adopt-message').value });
     $('#adopt-dialog').close(); await refresh(); selectTask(adoptTaskId); toast('原会话已移交并接续');
-  } catch (error) { $('#adopt-error').textContent = error.message; }
+  } catch (error) {
+    $('#adopt-error').textContent = error.message;
+    if (error.code === 'thread_in_use') await refresh();
+  }
   finally { $('#adopt-submit').disabled = false; }
 });
 $('#pause-task').addEventListener('click', () => void control(currentTask().paused ? 'resume' : 'pause'));

@@ -316,3 +316,18 @@ test('transfer rejects active status and unfinished history without dispatching'
   }
   assert.equal(h.adapter.sent.length, 0);
 });
+
+test('failed manual-ID transfer never binds the foreign writer or reserves its thread ID', async t => {
+  const h = await harness(t), old = await h.adapter.createThread({ cwd: process.cwd() });
+  h.adapter.resumeThread = async () => { throw new Error(`thread ${old.id} already has an active writer`); };
+  const task = await h.create({ threadId: old.id, ownershipConfirmed: true });
+  assert.equal(task.status, 'needs_attention'); assert.equal(task.threadId, null);
+  assert.equal(task.adoptThreadId, null); assert.equal(task.attemptedThreadId, old.id); assert.deepEqual(task.threadChain, []);
+  assert.equal(h.store.records('alerts', task.id)[0].code, 'thread_in_use');
+  await assert.rejects(h.supervisor.control(task.id, 'continue'), /尚无可接续/);
+  await h.supervisor.recover(); h.supervisor.tick(); await h.flush(); assert.equal(h.adapter.sent.length, 0);
+  // The failed attempt no longer reserves the original id for this task.
+  await h.supervisor.control(task.id, 'stop');
+  const retried = await h.create({ threadId: old.id, ownershipConfirmed: true });
+  assert.notEqual(retried.id, task.id);
+});

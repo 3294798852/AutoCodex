@@ -1,0 +1,25 @@
+{
+  "testedAt": "2026-09-14",
+  "platform": "Windows",
+  "status": "incomplete",
+  "scope": "Codex desktop accessibility-tree read-only feasibility check",
+  "observed": [
+    "主区域、输入框、停止按钮和重新连接状态可读",
+    "会话标题在可访问性树中可能被截断",
+    "未发现可用于确认当前 thread UUID 的字段"
+  ],
+  "sendAttempt": {
+    "status": "not_verified",
+    "result": "coordinate input geometry is unavailable",
+    "textEntered": false,
+    "messageSent": false
+  },
+  "stoppedByUser": true,
+  "safety": [
+    "未向当前开发会话发送测试消息",
+    "未清除写入锁",
+    "未停止或退出用户 Codex",
+    "未保存完整 UI 树或其他聊天内容"
+  ],
+  "conclusion": "可读取状态，但尚未证明能安全绑定确切会话并发送继续；本版不启用桌面自动发送。"
+}

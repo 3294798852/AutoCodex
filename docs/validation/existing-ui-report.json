@@ -1,5 +1,5 @@
 {
-  "testedAt": "2026-09-14T11:48:45.063Z",
+  "testedAt": "2026-09-14T13:39:03.252Z",
   "checks": [
     "existing conversations list, pagination and local-file launch",
     "search and one-click attach without ID, directory or new prompt",
@@ -10,17 +10,18 @@
     "reload restores existing monitoring selection",
     "archived conversation filter",
     "390px layout has no horizontal overflow",
+    "writer conflict shows Chinese guidance, preserves draft and monitoring, and survives reload",
     "explicit handover resumes same conversation and preserves model"
   ],
   "samples": 5,
   "latencyMs": [
-    157,
-    1014,
-    1043,
-    1031,
-    1037
+    161,
+    1039,
+    1056,
+    1033,
+    1022
   ],
-  "p95Ms": 1043,
+  "p95Ms": 1056,
   "browserErrors": [],
   "scope": "isolated history fixtures; real filesystem/HTTP/SSE/browser; no paid requests"
 }

@@ -3,6 +3,7 @@ import { uid, assert, boundedText, redact } from './util.mjs';
 import { newIncident } from './policy.mjs';
 import { newOutputMonitor } from './progress.mjs';
 import { classifyError } from './classify.mjs';
+import { ownershipError } from './ownership.mjs';
 
 export const OBSERVATION_FRESH_MS = 30000;
 const idText = value => {
@@ -165,15 +166,28 @@ export class ExistingSessions {
       if (o.enabled) await this.poll(task.id);
     } else if (action === 'observe_refresh') await this.poll(task.id);
     else if (action === 'adopt') {
-      assert(input.ownershipConfirmed === true, '请先确认原会话已在其他客户端停止', 409);
+      assert(input.ownershipConfirmed === true, '请先确认原客户端已释放会话连接；仅停止回复还不能移交', 409);
       if (!o.enabled) this.countCheck();
       const message = boundedText(input.message || '继续。从上次停止处接续原任务，先核对已有成果，避免重复执行。', '继续消息', 16000);
       const thread = await this.s.adapter.readThread(task.threadId);
       assert(thread.status?.type !== 'active' && !thread.turns?.some(t => t.status === 'inProgress'), '原会话仍在运行，请先在原客户端停止', 409);
-      if (thread.cwd) task.cwd = thread.cwd;
-      this.s.rememberThreadSettings(task, thread);
       // Resume is the ownership handshake. Do not switch control mode or send until it succeeds.
-      this.s.rememberThreadSettings(task, await this.s.adapter.resumeThread(task));
+      const candidate = { ...task, cwd: thread.cwd || task.cwd };
+      this.s.rememberThreadSettings(candidate, thread);
+      let resumed;
+      try { resumed = await this.s.adapter.resumeThread(candidate); }
+      catch (error) {
+        const failure = ownershipError(error);
+        if (failure.code === 'thread_in_use' && o.lastControlError?.code !== failure.code) {
+          o.lastControlError = { code: failure.code, message: failure.message, at: this.s.now() };
+          this.s.record(task, 'adoption_blocked', failure.message, { level: 'warning' });
+        }
+        throw failure;
+      }
+      task.cwd = candidate.cwd;
+      this.s.rememberThreadSettings(task, candidate);
+      this.s.rememberThreadSettings(task, resumed);
+      o.lastControlError = null;
       task.controlMode = 'managed'; o.enabled = false; task.recycleToolAvailable = false;
       task.incident = newIncident(); task.outputMonitor = newOutputMonitor(this.s.now());
       task.stopRequested = false; task.paused = false; task.turnId = null;

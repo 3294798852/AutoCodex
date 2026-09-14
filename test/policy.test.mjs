@@ -36,6 +36,8 @@ test('protocol error variants classify inner fatal causes before network wrapper
     [{ message: '模型算力不足，请稍后重试' }, 'server_overloaded', true],
     [{ status: 429, message: 'insufficient_quota; model at capacity' }, 'quota', false],
     [{ status: 401, message: 'model at capacity' }, 'auth', false],
+    [{ message: 'thread thread-1 already has an active writer', code: -32600 }, 'conflict', false],
+    [{ code: 'thread_in_use', message: '原会话被其他客户端占用', status: 409 }, 'conflict', false],
   ];
   for (const [input, category, recoverable] of cases) {
     const result = classifyError(input);

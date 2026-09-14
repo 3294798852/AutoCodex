@@ -62,6 +62,18 @@ test('loopback API enforces authentication, Origin, Host, body limit and plugin 
   const state = await (await h.request('/api/v1/state')).text(); assert(!state.includes(h.connection.token)); assert(!state.includes(h.connection.pluginToken));
 });
 
+test('writer conflicts return actionable 409 without binding or modifying the original task', async t => {
+  const h = await fixture(t), id = 'foreign-writer', path = join(h.directory, 'writer.jsonl');
+  writeFileSync(path, JSON.stringify({ type: 'session_meta', payload: { id } }) + '\n');
+  const thread = { id, path, cwd: h.directory, status: { type: 'notLoaded' }, turns: [] };
+  h.adapter.readThreadSummary = async () => thread; h.adapter.readThread = async () => thread;
+  h.adapter.resumeThread = async () => { throw new Error(`thread ${id} already has an active writer`); };
+  const task = await h.supervisor.existing.add({ threadId: id });
+  const response = await h.request(`/api/v1/tasks/${task.id}/control`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'adopt', ownershipConfirmed: true }) });
+  assert.equal(response.status, 409); const result = await response.json(); assert.equal(result.code, 'thread_in_use'); assert.match(result.error, /保持监测/);
+  assert.equal(h.store.task(task.id).controlMode, 'observe'); assert.equal(h.adapter.sent.length, 0);
+});
+
 test('local-file document navigation can open the public panel while cross-site API and embedded requests stay blocked', async t => {
   const h = await fixture(t);
   const navigation = { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };

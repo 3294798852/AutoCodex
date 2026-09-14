@@ -1,6 +1,6 @@
 # 实现架构与关键决策
 
-版本：0.2；修订日期：2026-09-13。
+版本：0.5.2；修订日期：2026-09-14。
 
 ## 1. 架构
 
@@ -24,7 +24,13 @@ flowchart LR
 
 使用官方 `initialize`、`thread/start/read/resume`、`turn/start/interrupt` 及运行事件。默认 stdio，无额外网络暴露。适配器处理协议细节，状态机不直接访问 UI 或 Codex 私有 SQLite。CLI 版本固定作为兼容性基线，启动/诊断可检查可用性。
 
-公开 app-server 仍标记实验性，兼容性以验证版本为准。0.5.0 使用 thread/list、thread/read 的元数据发现已有会话，再以有界 JSONL 增量读取获得活动证据；独立服务 notLoaded/历史 interrupted 不作为桌面终态。观察模式与控制模式明确分离，详细见 [已有会话设计](14-existing-sessions.md)。未来直接控制桌面活动会话仍需验证共享端点及所有权。
+公开 app-server 仍标记实验性，兼容性以验证版本为准。0.5.0 使用 thread/list、thread/read 的元数据发现已有会话，再以有界 JSONL 增量读取获得活动证据；独立服务 notLoaded/历史 interrupted 不作为桌面终态。观察模式与控制模式明确分离，详细见 [已有会话设计](14-existing-sessions.md)。0.5.2 的隔离实测确认：原进程空闲时仍持有写入权，跨进程 unsubscribe 不释放该权；queue/add 可排队但试验期间未自动执行，queue/start 要求先 resume。独立 app-server 不能据此成为原桌面的透明控制入口。
+
+### ADR-009：原客户端监测与可选桌面辅助
+
+用户在原 Codex 桌面正常工作，已有观察任务保持 `observe`；高级移交成功才切换为 `managed`。`ownership.mjs` 仅将确定的 active writer 拒绝转换为中文 HTTP 409；超时等结果不明的错误保留原语义。移交前使用临时候选配置，握手失败不改变原任务的目录、模型或监测状态；手动 ID 失败不绑定外部会话，均不发送继续。
+
+用户已同意先验证独立 Windows 桌面辅助组件。规划为只读观察器 → 监测动作协调器 → 原窗口辅助，并优先通过官方 PermissionRequest 钩子衔接权限策略。组件可独立发布，支持自动发现和手动路径；开发工具不成为运行依赖。当前仅验证 UIA 状态读取，尚未通过确切会话身份与发送核对，因此 0.5.2 不启用原窗口自动动作。指标、接口和接续点见 [监测模式方案](16-monitor-mode-feasibility.md)。
 
 ### ADR-003：零运行依赖
 

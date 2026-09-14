@@ -1,6 +1,6 @@
 # Codex 框架核实记录
 
-核实日期：2026-09-12；本机 Node.js 24.18.0；本机 Codex CLI 0.153.4。
+首次核实：2026-09-12；最新补充：2026-09-14（0.5.2）；本机 Node.js 24.18.0；本机 Codex CLI 0.153.4。
 
 ## 官方来源（已检索并读取页面正文）
 
@@ -57,3 +57,13 @@ thread/start 的 dynamicTools 注册 autocodex_recycle；item/tool/call 请求�
 官方 https://learn.chatgpt.com/docs/app-server#threads 明确 read 不加载/订阅、loaded/list 为当前服务内存；list 可按提供方、来源、标题、归档分页。本机 Windows CLI 0.153.4 daemon version 报 only supported on Unix platforms。只读本项目活动会话时，独立 app-server 返回 notLoaded、回合 interrupted，证明不能直接当桌面终态。
 
 隔离两个 Codex 进程实测：观察者从列表发现原进程正在执行的会话；原始日志包含 task_started、item_completed/AgentMessage、task_complete；观察者 loaded/list 始终为空，停止观察不 interrupt，原进程正常完成。HTTP 503 结束写作 task_complete + error（并非独立 error 事件）；解析器已覆盖这一真实形态，显示 error 并告警一次，最终 token_count 不抹除失败。报告 docs/validation/existing-codex-report.json；2 次本机上游请求，0 付费请求。
+
+## 0.5.2 所有权与原客户端辅助边界（2026-09-14）
+
+两个隔离 app-server 证明：原进程回合结束后，另一进程 resume 仍返回 active writer；另一进程 unsubscribe 返回 notLoaded，重试仍冲突。queue/add 成功后观察 2 秒未自动执行，queue/start 拒绝并要求先 resume；测试队列项由原进程删除。原测试进程正常退出后 resume 成功。此处只报告当前版本和试验时序，不推断未来版本行为。
+
+已重新读取 [官方 Hooks 正文](https://learn.chatgpt.com/docs/hooks)。Stop 的 block/reason 能产生继续提示，但文档不保证所有上游失败都调用 Stop；Interrupt 输出不能阻止中断或重启回合。PermissionRequest 可返回 allow/deny 或不作决定，适合原进程权限桥；不需要批准的命令不会触发该钩子。
+
+本机 CLI exec 正常完成时触发 UserPromptSubmit 与 Stop；HTTP 503 和截断 SSE 仅触发 UserPromptSubmit。试验使用独立配置、本机上游，共 5 次本机请求、0 付费请求；记录见 [协议探针](validation/monitor-capability-report.json)。现有受管 RPC 批准测试不代表原桌面 PermissionRequest 已通过接入验证。
+
+桌面 UIA 只读试验可读输入框、停止按钮和重连状态，但未取得可验证的 thread UUID，输入区域几何不可用；随后用户 Esc 停止，未输入或发送。此次不能确定桌面发送可行性，记录见 [桌面摘要](validation/desktop-monitor-feasibility.json)。后续框架与明确门槛见 [16 文档](16-monitor-mode-feasibility.md)。

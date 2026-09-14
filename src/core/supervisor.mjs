@@ -1,5 +1,6 @@
 import { DND_LABELS, DND_KEYS, validateDnd, evaluateDnd } from './dnd-policy.mjs';
 import { ExistingSessions } from './existing-sessions.mjs';
+import { ownershipError } from './ownership.mjs';
 import { prepareRecycle, recyclePaths } from './recycle.mjs';
 import { EventEmitter } from 'node:events';
 import { VERSION } from '../version.mjs';
@@ -124,7 +125,7 @@ export class Supervisor extends EventEmitter {
   }
 
   async createTask(input) {
-    if (input.threadId) assert(input.ownershipConfirmed === true, '接管前需要确认该会话已在其他客户端停止');
+    if (input.threadId) assert(input.ownershipConfirmed === true, '接管前需要确认原客户端已释放会话连接；仅停止回复还不能移交');
     const requestedThreadId = input.threadId ? boundedText(input.threadId, '会话 ID', 180) : null;
     if (requestedThreadId) assert(!this.store.tasks().some(existing => (existing.threadId === requestedThreadId || existing.adoptThreadId === requestedThreadId) && (existing.controlMode === 'observe' || !TERMINAL.has(existing.status))), '该会话已在其他监护任务中，请从原任务移交或继续', 409);
     const prompt = boundedText(input.prompt, '任务描述', 16000);
@@ -153,7 +154,7 @@ export class Supervisor extends EventEmitter {
     this.record(task, 'task_created', '任务已加入监护');
     return this.exclusive(task.id, async () => {
       if (input.threadId) {
-        assert(input.ownershipConfirmed === true, '接管前需要确认该会话已在其他客户端停止');
+        assert(input.ownershipConfirmed === true, '接管前需要确认原客户端已释放会话连接；仅停止回复还不能移交');
         const threadId = requestedThreadId;
         try {
           const thread = await this.adapter.readThread(threadId);
@@ -161,12 +162,15 @@ export class Supervisor extends EventEmitter {
           assert(!thread.cwd || realpathSync(thread.cwd) === cwd, '接管工作目录必须与原会话一致');
           if (!task.model && thread.model) task.model = thread.model;
           if (thread.modelProvider) task.modelProvider = thread.modelProvider;
+          const resumed = await this.adapter.resumeThread({ ...task, threadId });
           task.threadId = threadId;
           task.threadChain.push({ id: threadId, createdAt: now, reason: 'adopted' });
-          this.rememberThreadSettings(task, await this.adapter.resumeThread(task));
+          this.rememberThreadSettings(task, resumed);
           this.record(task, 'thread_adopted', '已接管用户移交的停止会话');
         } catch (error) {
-          this.alert(task, 'adoption_failed', `会话接管失败：${redact(error.message)}`);
+          const failure = ownershipError(error);
+          task.attemptedThreadId = threadId; task.adoptThreadId = null;
+          this.alert(task, failure.code === 'thread_in_use' ? failure.code : 'adoption_failed', `会话接管失败：${redact(failure.message)}`);
           return this.getTask(task.id);
         }
       } else if (!await this.openThread(task, false)) return this.getTask(task.id);

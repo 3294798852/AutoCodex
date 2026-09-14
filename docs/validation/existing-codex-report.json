@@ -1,11 +1,12 @@
 {
-  "testedAt": "2026-09-14T11:41:46.066Z",
+  "testedAt": "2026-09-14T13:50:06.982Z",
   "checks": [
     "official list discovers a conversation owned by another Codex process",
     "already active conversation joins monitoring without resume",
     "stopping monitoring lets the original turn finish normally",
     "persisted real output and completion appear after monitoring resumes",
-    "real HTTP 503 termination is shown as an error and alerts once"
+    "real HTTP 503 termination is shown as an error and alerts once",
+    "takeover of an idle but owned conversation returns Chinese 409 while monitoring and original writer remain intact"
   ],
   "localRequests": 2,
   "paidModelRequests": 0,

@@ -1,4 +1,5 @@
 import { redact } from './util.mjs';
+import { isWriterConflict, WRITER_CONFLICT_MESSAGE } from './ownership.mjs';
 
 const normalize = value => String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 
@@ -21,6 +22,8 @@ export function classifyError(error = {}) {
     category, label, recoverable, message: redact(error.message || '未提供错误说明', 1600),
     httpStatus: Number.isInteger(status) ? status : null, retryAfterMs, sourceType: tag || error.kind || error.code || null,
   });
+
+  if (isWriterConflict(error)) return { ...result('conflict', '原会话被其他客户端占用', false), message: WRITER_CONFLICT_MESSAGE };
 
   // Fatal inner causes must win over transient stream/connection wrappers.
   if (kind.includes('misalignment') || kind.includes('cyberpolicy') || /policy violation|safety policy|安全策略|策略拒绝/.test(text))

@@ -1,4 +1,5 @@
 import { RECYCLE_TOOL } from '../core/recycle.mjs';
+import { ownershipError } from '../core/ownership.mjs';
 import { EventEmitter } from 'node:events';
 import { JsonlRpcClient } from './rpc-client.mjs';
 import { resolveCodex, describeCodex } from './codex-discovery.mjs';
@@ -91,7 +92,9 @@ export class CodexAdapter extends EventEmitter {
   }
   async resumeThread(task) {
     await this.connect();
-    const result = await this.client.request('thread/resume', { threadId: task.threadId, ...this.config(task) });
+    let result;
+    try { result = await this.client.request('thread/resume', { threadId: task.threadId, ...this.config(task) }); }
+    catch (error) { throw ownershipError(error); }
     this.loaded.add(task.threadId);
     return { ...result.thread, model: result.model || result.thread.model, modelProvider: result.modelProvider || result.thread.modelProvider };
   }

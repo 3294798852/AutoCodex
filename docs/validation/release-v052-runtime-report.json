@@ -1,0 +1,27 @@
+{
+  "testedAt": "2026-09-14T14:04:38.3912457Z",
+  "version": "0.5.2",
+  "codexVersion": "codex-cli 0.153.4",
+  "platform": "Windows",
+  "scope": "Relocated release package startup, DND persistence, installation discovery and manual path checks",
+  "packageBuild": "passed",
+  "integrity": "SHA256SUMS.json verified",
+  "filesVerifiedBeforeReportEmbedding": 87,
+  "credentialsIncluded": false,
+  "machinePathsInMcpTemplate": false,
+  "modelGenerationRequested": false,
+  "checks": {
+    "demoStartup": "passed",
+    "unicodeRelocation": "passed",
+    "customDataDirectory": "passed",
+    "pluginReconfiguration": "passed",
+    "dndDefaults": "passed",
+    "dndPersistence": "passed",
+    "recycleEntryPackaged": "passed",
+    "automaticDiscovery": "passed",
+    "manualOverride": "passed",
+    "manualUnicodePath": "passed",
+    "savedPathRestart": "passed",
+    "shutdown": "passed"
+  }
+}

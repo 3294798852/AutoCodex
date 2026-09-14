@@ -127,6 +127,39 @@ test('explicit adoption preserves identity/settings and sends only after success
   assert.equal(h.adapter.sent.length, 1); assert.equal(h.adapter.sent[0].threadId, h.id);
 });
 
+test('active writer conflicts remain observable across repeated attempts and restart, then resume only after release', async t => {
+  const h = await fixture(t), before = h.store.task(h.taskId);
+  h.adapter.threads.get(h.id).model = 'kept-model';
+  h.adapter.resumeThread = async () => { throw Object.assign(new Error(`thread ${h.id} already has an active writer`), { code: -32600 }); };
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(h.supervisor.control(h.taskId, 'adopt', { ownershipConfirmed: true }), error => error.status === 409 && error.code === 'thread_in_use' && /停止回复并不释放/.test(error.message));
+  }
+  const rejected = h.store.task(h.taskId);
+  assert.equal(rejected.controlMode, 'observe'); assert.equal(rejected.observation.enabled, true);
+  assert.equal(rejected.threadId, before.threadId); assert.equal(rejected.model, before.model);
+  assert.equal(rejected.pendingActionId, null); assert.equal(h.adapter.sent.length, 0); assert.equal(h.adapter.interrupted, undefined);
+  assert.equal(h.store.events({ taskId: h.taskId }).filter(e => e.type === 'adoption_blocked').length, 1);
+  await h.supervisor.close();
+  const restored = new Supervisor({ store: h.store, adapter: h.adapter, now: h.now });
+  try {
+    await restored.recover(); assert.equal(h.adapter.sent.length, 0);
+    assert.equal(restored.getTask(h.taskId).observation.lastControlError.code, 'thread_in_use');
+    h.append('agent_message', { message: '原客户端仍然可以继续工作并产生新的结果。' });
+    await restored.existing.poll(h.taskId); assert.match(restored.getTask(h.taskId).lastOutput, /原客户端/);
+    h.adapter.resumeThread = async task => h.adapter.readThread(task.threadId);
+    const outcomes = await Promise.allSettled([restored.control(h.taskId, 'adopt', { ownershipConfirmed: true }), restored.control(h.taskId, 'adopt', { ownershipConfirmed: true })]);
+    assert.equal(outcomes.filter(r => r.status === 'fulfilled').length, 1); assert.equal(h.adapter.sent.length, 1);
+    assert.equal(restored.getTask(h.taskId).model, 'kept-model'); assert.equal(restored.getTask(h.taskId).observation.lastControlError, null);
+  } finally { await restored.close(); }
+});
+
+test('uncertain resume is not disguised as writer conflict or followed by a turn', async t => {
+  const h = await fixture(t), error = Object.assign(new Error('resume response timed out'), { uncertain: true, code: 'rpc_timeout' });
+  h.adapter.resumeThread = async () => { throw error; };
+  await assert.rejects(h.supervisor.control(h.taskId, 'adopt', { ownershipConfirmed: true }), e => e === error);
+  assert.equal(h.store.task(h.taskId).controlMode, 'observe'); assert.equal(h.adapter.sent.length, 0);
+});
+
 test('reader preserves split UTF-8 and incomplete lines, skips corrupt records and detects truncation or replacement', async t => {
   const temp = tempDirectory(); t.after(temp.remove); const path = join(temp.directory, 'rollout.jsonl'), id = 'abc';
   writeFileSync(path, header(id)); const first = await readRollout(path, id);

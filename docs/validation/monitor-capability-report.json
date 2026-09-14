@@ -1,0 +1,78 @@
+{
+  "testedAt": "2026-09-14T13:50:04.619Z",
+  "version": "codex-cli 0.153.4",
+  "paidModelRequests": 0,
+  "hookCases": [
+    {
+      "mode": "success",
+      "exitCode": 0,
+      "events": [
+        "UserPromptSubmit",
+        "Stop"
+      ]
+    },
+    {
+      "mode": "503",
+      "exitCode": 1,
+      "events": [
+        "UserPromptSubmit"
+      ]
+    },
+    {
+      "mode": "disconnect",
+      "exitCode": 1,
+      "events": [
+        "UserPromptSubmit"
+      ]
+    }
+  ],
+  "hookTypes": [
+    "permissionRequest",
+    "userPromptSubmit",
+    "stop",
+    "interrupt"
+  ],
+  "idleOwnerResume": {
+    "ok": false,
+    "code": -32600,
+    "message": "thread 01a0a02e-9fff-7742-a3dc-39e4ab585714 already has an active writer"
+  },
+  "otherProcessUnsubscribe": {
+    "status": "notLoaded"
+  },
+  "resumeAfterForeignUnsubscribe": {
+    "ok": false,
+    "code": -32600,
+    "message": "thread 01a0a02e-9fff-7742-a3dc-39e4ab585714 already has an active writer"
+  },
+  "foreignQueueAdd": {
+    "ok": true,
+    "result": {
+      "queuedSubmission": {
+        "id": "01a0a02e-a3c6-7c61-bfa5-e4dcbd27dbbc",
+        "input": [
+          {
+            "type": "text",
+            "text": "Isolated queued fixture.",
+            "text_elements": []
+          }
+        ],
+        "clientUserMessageId": "694366ae-e12c-4802-bbaa-71ec45ee0836"
+      }
+    }
+  },
+  "queueStartedAutomatically": false,
+  "foreignQueueStart": {
+    "ok": false,
+    "code": -32600,
+    "message": "resume the thread before starting a queued message"
+  },
+  "resumeAfterOwnerExit": {
+    "ok": true,
+    "result": {
+      "id": "01a0a02e-9fff-7742-a3dc-39e4ab585714",
+      "turnCount": 2
+    }
+  },
+  "localRequests": 5
+}

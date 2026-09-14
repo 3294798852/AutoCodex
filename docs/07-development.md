@@ -97,7 +97,7 @@ GET /api/v1/threads?search=标题&cursor=分页位置&archived=true：返回最�
 
 POST /api/v1/observations，正文 {"threadId":"…"}：只读元数据并加入观察，不发消息、不 resume；重复返回已存在任务。仅管理员口令可使用上述接口。
 
-任务 control 增加 observe_stop、observe_start、observe_refresh、adopt。adopt 必须带 ownershipConfirmed=true，可带 message；成功 resume 后转为 managed 并发送继续。观察任务使用 controlMode=observe、status=observing/stopped；observation 保存 phase、enabled、证据时间、读取游标与覆盖提示。观察任务不进入 Supervisor 的自动恢复、连接丢失、重启核对和批准路径。读写同一任务经 exclusive 串行。
+任务 control 增加 observe_stop、observe_start、observe_refresh、adopt。adopt 必须带 ownershipConfirmed=true（已释放原连接），可带 message；成功 resume 后转为 managed 并发送继续。确定的写入冲突返回 HTTP 409 / thread_in_use，观察任务保留原配置、控制模式和监测，事件去重记录；RPC 结果不明保持原错误。手动 ID 接管失败不绑定外部 threadId，不能从“继续”绕过移交。观察任务使用 controlMode=observe、status=observing/stopped；observation 保存 phase、enabled、证据时间、读取游标与覆盖提示。观察任务不进入 Supervisor 的自动恢复、连接丢失、重启核对和批准路径。读写同一任务经 exclusive 串行。
 
 rollout-reader 按字节增量、验证 session_meta.id、检查文件身份及末尾锚点；未完成行留在磁盘，超过 1 MiB 的行有界丢弃至换行。换文件/截断重建近期基线，不重播历史通知。页端每 5 秒至少更新一次检查时间。日志内容仅作为数据解析，不执行原文。
 
