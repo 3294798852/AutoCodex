@@ -1,6 +1,6 @@
 {
   "name": "autocodex-guard",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Local Codex recovery supervisor and monitoring panel",
   "type": "module",
@@ -24,6 +24,8 @@
     "smoke:ui-existing": "node scripts/ui-existing-smoke.mjs",
     "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
     "smoke:desktop": "node scripts/desktop-relay-smoke.mjs",
-    "smoke:ui-desktop": "node scripts/ui-desktop-smoke.mjs"
+    "smoke:ui-desktop": "node scripts/ui-desktop-smoke.mjs",
+    "build:window": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-window.ps1",
+    "smoke:ui-usability": "node scripts/ui-usability-smoke.mjs"
   }
 }

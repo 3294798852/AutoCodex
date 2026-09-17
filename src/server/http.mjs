@@ -22,14 +22,14 @@ function constantEqual(value, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function body(req) {
+function body(req, limit = 65536) {
   assert(req.headers['content-type']?.split(';')[0].trim() === 'application/json', '请求必须使用 JSON', 415);
   return new Promise((resolve, reject) => {
     let size = 0, tooLarge = false;
     const parts = [];
-    req.on('data', chunk => { size += chunk.length; if (size > 65536) tooLarge = true; else parts.push(chunk); });
+    req.on('data', chunk => { size += chunk.length; if (size > limit) tooLarge = true; else parts.push(chunk); });
     req.on('end', () => {
-      if (tooLarge) { reject(new AppError('请求内容超过 64 KiB', 413)); return; }
+      if (tooLarge) { reject(new AppError(`请求内容超过 ${limit / 1024} KiB`, 413)); return; }
       try {
         const value = JSON.parse(Buffer.concat(parts).toString('utf8') || '{}');
         assert(value && typeof value === 'object' && !Array.isArray(value), 'JSON 请求必须是对象');
@@ -128,7 +128,7 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
       assert(role, '需要本机访问口令，请通过启动器打开面板', 401);
       if (path === '/api/v1/desktop/poll' || path === '/api/v1/desktop/approval') {
         assert(role === 'relay' && req.method === 'POST', '需要本机桌面辅助连接', 403);
-        const input = await body(req);
+        const input = await body(req, path.endsWith('/poll') ? 262144 : 65536);
         send(res, 200, path.endsWith('/poll') ? await supervisor.desktop.poll(input) : await supervisor.desktop.approve(input)); return;
       }
       assert(role !== 'relay', '桌面辅助连接只允许监测事件与本次动作', 403);
@@ -162,7 +162,7 @@ export function createDashboardServer(supervisor, { port = 3210, onShutdown, cod
         send(res, 200, path.endsWith('/detect') ? codexSettings.detect(input.command) : codexSettings.save(input.command)); return;
       }
       if (req.method === 'POST' && path === '/api/v1/tasks') {
-        assert(supervisor.store.tasks().filter(task => !['completed', 'stopped', 'failed'].includes(task.status)).length < 20, '本机最多同时监护 20 个任务', 409);
+        assert(supervisor.store.tasks().filter(task => !task.parentTaskId && !['completed', 'stopped', 'failed'].includes(task.status)).length < 20, '本机最多同时监护 20 个主任务', 409);
         const input = await body(req);
         if (supervisor.adapter.mode === 'demo') assert(SCENARIOS.some(s => s.id === (input.scenario || 'intermittent')), '未知演练场景');
         send(res, 201, await supervisor.createTask(input)); return;

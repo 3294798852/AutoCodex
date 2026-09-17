@@ -46,14 +46,14 @@ if (!isServer) {
   const fault = error => { overflow = true; process.stderr.write('AutoCodex relay: ' + error.message + '\n'); };
   const relay = new ProtocolRelay({ toServer: m => write(child.stdin, m), toDesktop: m => write(process.stdout, m), recycleSecret, onFault: fault,
     approval: value => {
-      if (!connected || !watched.get(value.threadId)?.autoApprove || overflow) return null;
+      if (!connected || !relay.policyFor(value.threadId, watched)?.autoApprove || overflow) return null;
       const request = { relayId: relay.id, ...value };
       if (Buffer.byteLength(JSON.stringify(request)) > 60000) return null;
       return api('approval', request);
     } });
   relay.on('event', event => {
     if (event.type === 'replacement_created') watched.set(event.thread.id, { ...watched.get(event.threadId) });
-    if (!watched.has(event.threadId) && !['loaded', 'action_result'].includes(event.type)) return;
+    if (!relay.policyFor(event.threadId, watched) && !['loaded', 'action_result'].includes(event.type)) return;
     if (Buffer.byteLength(JSON.stringify(event)) > 38000) { overflow = true; return; }
     backlog.push({ ...event, seq: ++sequence });
     if (backlog.length > 1000) { backlog = []; overflow = true; }
@@ -86,13 +86,16 @@ if (!isServer) {
     inflight = true;
     try {
       const events = []; let size = 0;
-      for (const event of backlog) { size += Buffer.byteLength(JSON.stringify(event)); if (size > 40000) break; events.push(event); }
+      for (const event of backlog) { size += Buffer.byteLength(JSON.stringify(event)); if (size > 60000) break; events.push(event); }
       const threads = relay.snapshots();
-      if (threads.length > 100 || Buffer.byteLength(JSON.stringify(threads)) > 20000) overflow = true;
+      if (threads.length > 200 || Buffer.byteLength(JSON.stringify(threads)) > 180000) overflow = true;
       const snapshots = []; let bytes = 0;
-      for (const state of threads.slice(0, 100)) { bytes += Buffer.byteLength(JSON.stringify(state)); if (bytes > 20000) break; snapshots.push(state); }
+      for (const state of threads.slice(0, 200)) { bytes += Buffer.byteLength(JSON.stringify(state)); if (bytes > 180000) break; snapshots.push(state); }
       const result = await api('poll', { relayId: relay.id, pid: process.pid, workerPid: child.pid, overflow, threads: snapshots, events });
       connected = true; watched = new Map(result.watched.map(t => [t.threadId, t]));
+      for (const id of result.excluded || []) watched.set(id, { excluded: true });
+      relay.retireCompleted(watched);
+      void relay.refreshChildren(watched).catch(() => { /* Read-only fallback can retry; normal event forwarding continues. */ });
       if (events.length) backlog = backlog.filter(e => e.seq > events.at(-1).seq);
       for (const action of result.actions || []) {
         if (overflow || !watched.get(action.threadId)?.autoContinue) {

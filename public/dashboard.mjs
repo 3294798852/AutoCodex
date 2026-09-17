@@ -3,8 +3,8 @@ const $$ = selector => [...document.querySelectorAll(selector)];
 const labels = { starting: '启动中', running: '运行中', retry_wait: '等待恢复', recovering: '接续中', waiting_user: '等待用户', needs_attention: '需要处理', completed: '已完成', stopped: '已停止', failed: '接续已终止' };
 const busyStates = ['starting', 'running', 'recovering', 'waiting_user'];
 const observedLabels = { active_recent: '最近有活动', completed: '本回合已完成', interrupted: '本回合已中断', error: '记录了异常', waiting_user: '等待用户', unknown: '状态待确认', unavailable: '记录不可读' };
-const observedPhase = task => task.assist?.connected && ({ running: 'running', retry_wait: 'retry_wait', sending: 'recovering', waiting_user: 'waiting_user', attention: 'needs_attention', completed: 'completed', stopped: 'stopped', failed: 'error' }[task.assist.phase]) || task.observation.phase;
-const taskLabel = task => task.controlMode === 'observe' ? task.observation.enabled ? observedLabels[observedPhase(task)] || labels[observedPhase(task)] || '监测中' : '已停止监测' : labels[task.status] || task.status;
+const observedPhase = task => task.assist?.connected && (task.assist.blocked ? 'needs_attention' : ({ running: 'running', retry_wait: 'retry_wait', sending: 'recovering', waiting_user: 'waiting_user', attention: 'needs_attention', completed: 'completed', stopped: 'stopped', failed: 'error' }[task.assist.phase])) || task.observation.phase;
+const taskLabel = task => task.controlMode === 'observe' ? task.observation.enabled ? observedLabels[observedPhase(task)] || labels[observedPhase(task)] || '监测中' : task.parentTaskId && !task.monitorExcluded ? '已释放监测' : '未监测' : labels[task.status] || task.status;
 let state, selectedId, currentView = 'monitor', detailTab = 'timeline', detailData, eventStream, refreshTimer, toastTimer;
 let requestVersion = 0, approvalSignature = '', operationBusy = false, seenAlerts = null;
 let installationSettings, installationBusy = false;
@@ -50,18 +50,18 @@ async function readDetail() {
 function renderState(next) {
   state = next; renderDnd();
   $('#app-version').textContent = `v${state.version}`;
-  if (!selectedId || !state.tasks.some(task => task.id === selectedId)) selectedId = state.tasks[0]?.id;
+  if (!selectedId || !state.tasks.some(task => task.id === selectedId)) selectedId = state.tasks.find(t => !t.parentTaskId)?.id || state.tasks[0]?.id;
   $('#app').hidden = false; $('#auth-screen').hidden = true;
   $('#mode-notice').hidden = state.mode !== 'demo';
   $('#mode-badge').textContent = state.mode === 'demo' ? '故障演练' : '本机监护';
   $('#mode-badge').className = `badge ${state.mode === 'demo' ? 'demo' : 'neutral'}`;
   $('#fatal-notice').hidden = !state.faulted;
-  const alerts = state.alerts.filter(alert => !alert.acknowledgedAt);
-  $('#metric-running').textContent = state.tasks.filter(task => ['starting', 'running', 'recovering'].includes(task.status) || task.controlMode === 'observe' && task.observation.enabled && task.observation.phase === 'active_recent').length;
+  const alerts = state.alerts.filter(alert => !alert.acknowledgedAt && !alert.resolvedAt);
+  $('#metric-running').textContent = state.tasks.filter(task => ['starting', 'running', 'recovering'].includes(task.status) || task.controlMode === 'observe' && task.observation.enabled && ['active_recent', 'running'].includes(observedPhase(task))).length;
   $('#metric-retries').textContent = state.tasks.reduce((sum, task) => sum + task.totalAutoAttempts, 0);
   $('#metric-alerts').textContent = alerts.length;
   $('#metric-completed').textContent = state.tasks.filter(task => task.status === 'completed' || task.controlMode === 'observe' && task.observation.phase === 'completed').length;
-  $('#task-count').textContent = state.tasks.length;
+  $('#task-count').textContent = state.tasks.filter(t => !t.parentTaskId).length;
   $('#nav-alert-count').textContent = alerts.length; $('#nav-alert-count').hidden = !alerts.length;
   $('#last-update').textContent = time(Date.now());
   $('#codex-dot').className = `dot ${state.connection.connected ? 'mint' : 'amber'}`;
@@ -71,15 +71,16 @@ function renderState(next) {
   $('#connect-codex').hidden = state.mode === 'demo';
   $('#configure-codex').hidden = state.mode === 'demo';
   $('#existing-tasks').hidden = state.mode === 'demo'; $('#empty-existing').hidden = state.mode === 'demo';
-  renderTaskList(); renderTaskDetail(); renderAlerts(); notifyNewAlerts(alerts); queueDetail();
+  renderTaskList(); renderTaskDetail(); renderObjects(); renderAlerts(); notifyNewAlerts(alerts); queueDetail();
 }
 
 function renderTaskList() {
   const query = $('#task-search').value.toLocaleLowerCase(), filter = $('#task-filter').value;
   const tasks = state.tasks.filter(task => {
+    if (task.parentTaskId && task.id !== selectedId) return false;
     if (query && !`${task.name} ${task.cwd}`.toLocaleLowerCase().includes(query)) return false;
     if (filter === 'active') return [...busyStates, 'retry_wait', 'observing'].includes(task.status);
-    if (filter === 'attention') return ['needs_attention', 'failed', 'waiting_user'].includes(task.status) || task.observation?.enabled && ['error', 'waiting_user', 'unavailable', 'unknown'].includes(task.observation.phase);
+    if (filter === 'attention') return ['needs_attention', 'failed', 'waiting_user'].includes(task.status) || task.observation?.enabled && ['needs_attention', 'error', 'waiting_user', 'unavailable', 'unknown'].includes(observedPhase(task));
     return filter !== 'completed' || task.status === 'completed' || task.controlMode === 'observe' && task.observation?.phase === 'completed';
   });
   const list = $('#task-list'); list.replaceChildren();
@@ -122,15 +123,18 @@ function renderTaskDetail() {
     const o = task.observation;
     $('#observation-info').textContent = `${o.enabled ? '正在跟踪原会话的本机记录。' : '监测已停止。'}最近活动：${time(o.lastActivityAt, true)}；最近检查：${time(o.checkedAt, true)}。${o.phase === 'unknown' ? '目前无法确认是否仍在执行，请结合原客户端查看。' : ''}${o.phase === 'error' ? task.lastError?.message || '' : ''}${o.readError || ''}${o.coverage || ''}${o.lastControlError ? '上次移交未成功，监测状态已保留。' : ''}`;
     const a = task.assist || {}, phases = { running: '运行中', retry_wait: '等待续发', sending: '正在续发', waiting_user: '等待用户', attention: '需要核对', completed: '本轮完成', stopped: '已停止', failed: '本轮异常', idle: '已连接' };
+    if (a.connected && o.enabled) $('#observation-info').textContent = `原 Codex 已连接 · ${taskLabel(task)}。最近进展：${time(Math.max(task.outputMonitor.lastEffectiveAt || 0, task.familyProgress?.at || 0), true)}。人工处理、任务结束和子代理进展会自动同步。`;
     $('#desktop-assist-status').textContent = !o.enabled ? '监测已停止' : !a.connected ? '未连接原窗口' : a.blocked ? '需要核对' : phases[a.phase] || '已连接';
     $('#assist-continue').checked = !!a.autoContinue; $('#assist-approve').checked = !!a.autoApprove;
-    $('#assist-continue').disabled = operationBusy; $('#assist-approve').disabled = operationBusy;
+    $('#assist-continue').disabled = operationBusy || !!task.parentTaskId; $('#assist-approve').disabled = operationBusy || !!task.parentTaskId;
     $('#assist-reset').hidden = !a.blocked; $('#assist-reset').disabled = operationBusy;
-    $('#assist-detail').textContent = a.reason || (!a.connected ? '原桌面辅助连接未就绪' : `自动续发 ${task.totalAutoAttempts} 次 · 同类错误 ${task.incident.consecutiveSame}/${task.incident.threshold} · 已开启免打扰 ${state.dnd.enabledCount}/5`);
-    $('#observation-toggle').textContent = o.enabled ? '停止监测' : '恢复监测';
+    $('#assist-detail').textContent = a.blocked ? a.reason : (!a.connected ? '请通过 Start-AutoCodex.cmd 启动 Codex 以连接自动辅助' : `${task.parentTaskId ? '开关跟随父任务 · ' : ''}自动续发 ${task.totalAutoAttempts} 次 · 已开启免打扰 ${state.dnd.enabledCount}/5`);
+    $('#observation-toggle').textContent = o.enabled ? '移除监测' : '加入监测';
     for (const selector of ['#observation-refresh', '#observation-toggle', '#observation-adopt']) $(selector).disabled = operationBusy;
     $('#observation-refresh').disabled ||= !o.enabled;
+    $('.observation-advanced').hidden = !!task.parentTaskId;
   }
+  renderFamily(task);
   $('#pause-task').textContent = task.paused ? '恢复监护' : '暂停恢复';
   const active = busyStates.includes(task.status) || task.status === 'retry_wait';
   $('#pause-task').disabled = operationBusy || !active || task.outputMonitor?.blocked;
@@ -139,7 +143,7 @@ function renderTaskDetail() {
   $('#reconcile-task').disabled = operationBusy || !task.threadId || ['completed', 'stopped', 'failed', 'waiting_user'].includes(task.status);
   $('#stop-task').disabled = operationBusy || ['completed', 'stopped', 'failed'].includes(task.status);
   if (document.activeElement !== $('#task-strategy')) $('#task-strategy').value = task.policy.strategy;
-  $('#task-strategy').disabled = operationBusy;
+  $('#task-strategy').disabled = operationBusy || !!task.parentTaskId;
   const incident = task.status === 'completed' ? task.lastIncident || task.incident : task.incident;
   const threshold = incident.threshold || (incident.version === 2 ? 3 : 2);
   $('#retry-budget').textContent = `累计继续 ${incident.autoAttempts} · 无输出期间 ${incident.attemptsWithoutOutput ?? incident.autoAttempts}/${task.policy.maxAutoAttempts} · ${incident.version === 2 ? '同类错误' : '旧规则续发失败'} ${incident.consecutiveSame}/${threshold}`;
@@ -248,17 +252,85 @@ function showPacket(packet) {
   $('#history-dialog').showModal();
 }
 
+function objectOperation(threadId, task, button) {
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      if (task) await api(`/tasks/${task.id}/control`, { action: task.observation.enabled ? 'observe_stop' : 'observe_start' });
+      else await api('/observations', { threadId });
+      await refresh(); toast(task?.observation.enabled ? '已移除监测，Codex 任务继续运行' : '已加入监测');
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; }
+  });
+}
+function objectRow(thread, task) {
+  const row = element('article', 'object-row'); row.dataset.threadId = thread.id;
+  const body = element('div', 'object-body');
+  const title = element('strong', '', thread.name || task?.name || 'Codex 任务'); body.append(title);
+  const parent = task?.parentTaskId && state.tasks.find(p => p.id === task.parentTaskId);
+  body.append(element('small', '', parent ? `子代理 · 父任务：${parent.name}` : thread.parentThreadId ? '子代理' : '主任务'),
+    element('small', '', thread.cwd || task?.cwd || ''), element('code', 'object-id', thread.id));
+  const actions = element('div', 'object-actions');
+  if (task) {
+    actions.append(badge(task));
+    const view = element('button', 'button compact', '查看'); view.addEventListener('click', () => selectTask(task.id)); actions.append(view);
+  } else actions.append(element('span', 'badge neutral', thread.active ? '正在运行 · 未监测' : '未监测'));
+  if (!task || task.controlMode === 'observe') {
+    const toggle = element('button', 'button compact secondary', task?.observation.enabled ? '移除监测' : '加入监测');
+    if (parent && !parent.observation.enabled) { toggle.disabled = true; toggle.title = '先加入父任务监测'; }
+    objectOperation(thread.id, task, toggle); actions.append(toggle);
+  }
+  row.append(body, actions); return row;
+}
+function renderFamily(task) {
+  const rootId = task.rootTaskId || task.id;
+  const members = state.tasks.filter(t => t.id === rootId || t.rootTaskId === rootId).sort((a, b) => Number(!!a.parentTaskId) - Number(!!b.parentTaskId));
+  $('#task-family').hidden = task.controlMode !== 'observe';
+  const children = members.filter(t => t.parentTaskId);
+  $('#family-summary').textContent = `${children.filter(t => t.observation.enabled).length} 个活跃受监测子代理`;
+  const root = members.find(t => t.id === rootId), progress = root?.familyProgress;
+  $('#family-progress').textContent = progress ? `最近子代理进展：${progress.name} · ${time(progress.at)}。已计入父任务进展。`
+    : '主任务等待交付时，活跃子代理的有效输出也计入进展。子代理结束后自动释放监测。';
+  const list = $('#family-list'); list.replaceChildren();
+  if (!children.length) { list.append(element('p', 'settings-note', '暂未发现活跃子代理。接入原 Codex 后会自动跟踪。')); return; }
+  for (const member of members.slice(0, 40)) list.append(objectRow({ id: member.threadId, name: member.name }, member));
+}
+function renderObjects() {
+  const connections = $('#object-connections'); connections.replaceChildren();
+  const service = element('article', 'connection-card');
+  service.append(element('strong', '', 'AutoCodex 本机监护服务'), element('span', 'badge running', '运行中'),
+    element('small', '', `v${state.version} · ${window.autocodexDesktop ? '独立窗口' : '浏览器面板'} · 数据在本机保存`)); connections.append(service);
+  for (const c of state.desktop?.connections || []) {
+    const node = element('article', 'connection-card');
+    node.append(element('strong', '', 'Codex 原窗口连接'), element('span', `badge ${c.connected ? 'running' : 'stopped'}`, c.connected ? '已连接' : '已离线'),
+      element('small', '', `${c.threads} 个已加载任务 · 进程 ${c.workerPid || c.pid || '—'} · ${time(c.lastSeenAt)}`)); connections.append(node);
+  }
+  if (!state.desktop?.connectedClients) connections.append(element('p', 'settings-note', '尚未连接原 Codex。请使用 Start-AutoCodex.cmd 启动；当前仍可选择已有任务进行只读监测。'));
+  const known = new Map();
+  for (const c of state.desktop?.connections || []) for (const thread of c.tasks || []) known.set(thread.id, thread);
+  for (const task of state.tasks) known.set(task.threadId, { ...known.get(task.threadId), id: task.threadId, name: task.name, cwd: task.cwd, task });
+  const list = $('#object-list'), query = $('#object-search').value.toLocaleLowerCase(), filter = $('#object-filter').value; list.replaceChildren();
+  for (const thread of known.values()) {
+    const task = thread.task, watched = task?.controlMode === 'observe' ? task.observation.enabled : !!task;
+    if (query && !`${thread.name || ''} ${thread.cwd || ''} ${thread.id}`.toLocaleLowerCase().includes(query)) continue;
+    if (filter === 'watched' && !watched || filter === 'unwatched' && watched || filter === 'children' && !(task?.parentTaskId || thread.parentThreadId)) continue;
+    list.append(objectRow(thread, task));
+  }
+  if (!list.childElementCount) list.append(element('p', 'empty-list', '暂无符合条件的对象。点击“加入已有任务”选择 Codex 中的任务。'));
+}
+
 function renderAlerts() {
   const list = $('#alerts-list'); list.replaceChildren();
   if (!state.alerts.length) { list.append(element('div', 'empty-list', '暂无告警。新的异常与处理建议会显示在这里。')); return; }
   for (const alert of state.alerts) {
-    const row = element('article', `alert-card${alert.acknowledgedAt ? ' acknowledged' : ''}`);
+    const row = element('article', `alert-card${alert.acknowledgedAt || alert.resolvedAt ? ' acknowledged' : ''}`);
     const body = element('div', 'alert-body'); body.append(element('div', 'alert-title', alert.title));
     const task = state.tasks.find(task => task.id === alert.taskId);
-    const meta = element('div', 'alert-meta'); meta.append(element('span', '', task?.name || '监护任务'), element('time', '', time(alert.createdAt, true)), element('span', '', alert.acknowledgedAt ? '已确认' : '尚未确认')); body.append(meta);
+    const meta = element('div', 'alert-meta'); meta.append(element('span', '', task?.name || '监护任务'), element('time', '', time(alert.createdAt, true)), element('span', '', alert.resolvedAt ? '已解决 · ' + time(alert.resolvedAt) : alert.acknowledgedAt ? '已确认' : '待处理')); body.append(meta);
+    if (alert.resolvedAt) body.append(element('small', 'settings-note', alert.resolution));
     const actions = element('div', 'alert-actions');
     const view = element('button', 'button compact', '查看任务'); view.addEventListener('click', () => selectTask(alert.taskId)); actions.append(view);
-    if (!alert.acknowledgedAt) {
+    if (!alert.acknowledgedAt && !alert.resolvedAt) {
       const ack = element('button', 'button compact secondary', '确认告警');
       ack.addEventListener('click', async () => { try { await api(`/alerts/${alert.id}/ack`, {}); await refresh(); } catch (error) { toast(error.message, true); } }); actions.append(ack);
     }
@@ -331,8 +403,8 @@ function setView(view) {
   currentView = view;
   for (const item of $$('.view')) item.hidden = item.id !== `view-${view}`;
   for (const button of $$('.nav-item')) button.classList.toggle('active', button.dataset.view === view);
-  $('#page-title').textContent = { monitor: '运行监测', alerts: '告警中心', settings: '恢复设置' }[view];
-  $('#page-subtitle').textContent = { monitor: '掌握任务进展，让每一次异常都有记录。', alerts: '查看需要留意的异常，决定下一步如何继续。', settings: '按你的工作习惯，设定自动恢复的边界。' }[view];
+  $('#page-title').textContent = { monitor: '运行监测', objects: '监测对象', alerts: '告警中心', settings: '自动辅助设置' }[view];
+  $('#page-subtitle').textContent = { monitor: '在 Codex 照常工作，这里同步任务和子代理进展。', objects: '查看连接、主任务和子代理，随时加入或移除监测。', alerts: '已处理的问题会自动更新，历史记录始终保留。', settings: '统一管理自动续发、免打扰和本机连接。' }[view];
   if (view === 'settings') { fillSettings(); void loadCodexSettings(); }
 }
 
@@ -453,6 +525,9 @@ function notifyNewAlerts(alerts) {
   }
 }
 
+$('#view-settings').insertBefore($('#settings-form'), $('#dnd-panel'));
+const recoverySaveStatus = element('p', 'settings-save', '规则已保存 · 适用于新加入的主任务');
+recoverySaveStatus.id = 'recovery-save-status'; recoverySaveStatus.setAttribute('role', 'status'); $('#settings-form .settings-fields').append(recoverySaveStatus);
 for (const button of $$('.nav-item')) button.addEventListener('click', () => setView(button.dataset.view));
 for (const button of $$('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 for (const button of $$('.detail-tab')) button.addEventListener('click', () => {
@@ -463,6 +538,8 @@ for (const button of $$('.detail-tab')) button.addEventListener('click', () => {
 $('#task-search').addEventListener('input', renderTaskList); $('#task-filter').addEventListener('change', renderTaskList);
 $('#new-task').addEventListener('click', openCreate); $('#empty-create').addEventListener('click', openCreate);
 $('#existing-tasks').addEventListener('click', openExisting); $('#empty-existing').addEventListener('click', openExisting);
+$('#objects-add').addEventListener('click', openExisting);
+$('#object-search').addEventListener('input', renderObjects); $('#object-filter').addEventListener('change', renderObjects);
 $('#existing-search-form').addEventListener('submit', event => { event.preventDefault(); void loadExisting(); });
 $('#existing-archive').addEventListener('change', () => void loadExisting());
 $('#existing-more').addEventListener('click', () => void loadExisting(true));
@@ -527,12 +604,14 @@ $('#checkpoint-form').addEventListener('submit', async event => {
 });
 $('#settings-form').addEventListener('submit', async event => {
   event.preventDefault();
+  $('#recovery-save-status').textContent = '正在保存…';
   try {
     await api('/settings', { policy: { strategy: $('#setting-strategy').value, maxAutoAttempts: Number($('#setting-attempts').value),
       baseDelayMs: Math.round(Number($('#setting-delay').value) * 1000), maxDelayMs: Math.round(Number($('#setting-max-delay').value) * 1000), immediateFailureMs: Math.round(Number($('#setting-window').value) * 1000),
       errorWindowMs: Math.round(Number($('#setting-error-window').value) * 60000), noOutputTimeoutMs: Math.round(Number($('#setting-no-output').value) * 60000) } });
     await refresh(); toast('默认规则已保存，之后创建的任务会使用这些设置');
-  } catch (error) { toast(error.message, true); }
+    $('#recovery-save-status').textContent = '规则已保存 · 适用于新加入的主任务';
+  } catch (error) { $('#recovery-save-status').textContent = '保存失败：' + error.message; toast(error.message, true); }
 });
 $('#notification-toggle').addEventListener('click', async () => {
   if (!('Notification' in window)) return;
@@ -571,10 +650,10 @@ async function initialize() {
 setInterval(() => { $('#clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); renderRetry(); }, 1000);
 
 const dndKeys = ['outsideWorkspace', 'commonCommands', 'recycleDeletes', 'systemTools', 'confirmationPrompts'];
-let dndBusy = false;
+let dndBusy = false, pendingDnd = null;
 function renderDnd() {
   if (!state?.dnd) return;
-  const dnd = state.dnd, settings = dnd.settings;
+  const dnd = state.dnd, settings = { ...dnd.settings, ...pendingDnd };
   for (const key of dndKeys) { const input = $('#dnd-' + key); input.checked = settings[key]; input.disabled = dndBusy || key === 'recycleDeletes' && !dnd.recycleSupported; }
   const allEnabled = dndKeys.filter(key => key !== 'recycleDeletes' || dnd.recycleSupported).every(key => settings[key]);
   $('#dnd-all').checked = allEnabled;
@@ -603,7 +682,7 @@ function renderDnd() {
 async function saveDnd(changes) {
   if (dndBusy || !state?.dnd) return;
   const revision = state.dnd.settings.revision;
-  dndBusy = true; renderDnd(); $('#dnd-save-status').textContent = '正在保存…';
+  dndBusy = true; pendingDnd = changes; renderDnd(); $('#dnd-save-status').textContent = '正在保存…';
   try {
     const result = await api('/dnd', { ...changes, revision });
     state.dnd = result;
@@ -611,7 +690,7 @@ async function saveDnd(changes) {
     $('#dnd-save-status').textContent = '已保存，即时生效 · 已显示的待处理请求保持人工决定';
     await refresh();
   } catch (error) { $('#dnd-save-status').textContent = error.message; toast(error.message, true); await refresh().catch(() => {}); }
-  finally { dndBusy = false; renderDnd(); }
+  finally { dndBusy = false; pendingDnd = null; renderDnd(); }
 }
 for (const key of dndKeys) $('#dnd-' + key).addEventListener('change', event => { void saveDnd({ [key]: event.target.checked }); });
 $('#dnd-all').addEventListener('change', event => { const enable = event.target.checked; void saveDnd(Object.fromEntries(dndKeys.map(key => [key, enable && (key !== 'recycleDeletes' || state.dnd.recycleSupported)]))); });

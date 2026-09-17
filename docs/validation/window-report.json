@@ -1,0 +1,13 @@
+{
+  "testedAt": "2026-09-17T06:45:47.886Z",
+  "runtime": "Windows x64 native WinForms + WebView2",
+  "checks": [
+    "native window authenticates and renders the shared dashboard",
+    "GUI object remove updates the shared monitoring service",
+    "duplicate launch reuses existing GUI",
+    "settings persist to shared store",
+    "closing GUI exits window but keeps monitor alive"
+  ],
+  "paidModelRequests": 0,
+  "testDebugging": "loopback CDP enabled only in the test child environment"
+}

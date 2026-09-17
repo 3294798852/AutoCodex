@@ -11,7 +11,7 @@ try {
     if (-not $inventoryEntry) { throw 'Missing hash inventory' }
     $reader = [System.IO.StreamReader]::new($inventoryEntry.Open())
     try { $inventory = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
-    foreach ($required in @('.codex-plugin/plugin.json', '.mcp.json', 'scripts/bridge.mjs', 'runtime/src/main.mjs', 'runtime/src/adapters/codex-discovery.mjs', 'runtime/src/server/codex-settings.mjs', 'runtime/src/core/dnd-policy.mjs', 'runtime/src/core/recycle.mjs', 'runtime/src/native/recycle.ps1', 'runtime/native/AutoCodexRelay.exe', 'runtime/src/desktop/main.mjs', 'runtime/src/desktop/recycle-server.mjs', 'Start-AutoCodex.ps1', 'Start-AutoCodexDesktop.ps1', 'Start-AutoCodexDesktop.cmd', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'docs/09-user-guide.md', 'docs/10-installation-design.md', 'docs/12-dnd-requirements.md', 'docs/13-dnd-implementation.md', 'docs/17-desktop-relay.md')) {
+    foreach ($required in @('.codex-plugin/plugin.json', '.mcp.json', 'scripts/bridge.mjs', 'runtime/src/main.mjs', 'runtime/src/adapters/codex-discovery.mjs', 'runtime/src/server/codex-settings.mjs', 'runtime/src/core/dnd-policy.mjs', 'runtime/src/core/recycle.mjs', 'runtime/src/native/recycle.ps1', 'runtime/native/AutoCodexRelay.exe', 'runtime/src/desktop/main.mjs', 'runtime/src/desktop/recycle-server.mjs', 'Start-AutoCodex.ps1', 'Start-AutoCodexDesktop.ps1', 'Start-AutoCodexDesktop.cmd', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'docs/09-user-guide.md', 'docs/10-installation-design.md', 'docs/12-dnd-requirements.md', 'docs/13-dnd-implementation.md', 'docs/17-desktop-relay.md', 'docs/18-monitor-usability.md', 'Start-AutoCodex.cmd', 'Start-AutoCodexBrowser.cmd', 'Open-AutoCodexWindow.ps1', 'runtime/native/AutoCodexWindow.exe', 'runtime/native/Microsoft.Web.WebView2.Core.dll', 'runtime/native/Microsoft.Web.WebView2.WinForms.dll', 'runtime/native/WebView2Loader.dll')) {
         if (-not $archive.GetEntry($prefix + $required)) { throw "Missing archive member: $required" }
     }
     $reader = [System.IO.StreamReader]::new($archive.GetEntry($prefix + '.mcp.json').Open())
@@ -85,6 +85,9 @@ if ($Startup -or $WithCodex) {
         $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $packageDirectory '.mcp.json') | ConvertFrom-Json
         if ($manifest.mcpServers.'autocodex-guard'.args[0] -ne (Join-Path $packageDirectory 'scripts\bridge.mjs')) { throw 'Plugin relocation configuration did not update' }
         if ($manifest.mcpServers.'autocodex-guard'.env.AUTOCODEX_CONNECTION_FILE -ne (Join-Path $demoData 'connection.json')) { throw 'Custom connection path was not configured' }
+        $windowCheck = Start-Process -FilePath (Join-Path $packageDirectory 'runtime\native\AutoCodexWindow.exe') -ArgumentList ('"' + (Join-Path $demoData 'connection.json') + '" --check') -PassThru -Wait -WindowStyle Hidden
+        if ($windowCheck.ExitCode -ne 0) { throw 'Relocated WebView2 runtime check failed' }
+        $report.nativeWindowRuntime = 'passed'
         $report.demoStartup = 'passed'; $report.unicodeRelocation = 'passed'; $report.customDataDirectory = 'passed'; $report.pluginReconfiguration = 'passed'
     } finally { Stop-ServiceUnderTest $demoData $connection }
     Invoke-Launcher 'Start-AutoCodex.ps1' @('-Demo', '-Port', (Get-FreePort), '-NoBrowser', '-DataDir', $demoData) | Out-Null

@@ -9,7 +9,7 @@ export function syncOutputSuspension(task, now) {
   const monitor = task.outputMonitor;
   if (!monitor) return;
   const suspended = task.paused || task.status === 'waiting_user'
-    || task.controlMode === 'observe' && task.assist?.phase === 'waiting_user';
+    || task.controlMode === 'observe' && (task.assist?.phase === 'waiting_user' || task.familyWaiting);
   if (suspended && monitor.suspendedAt === null) monitor.suspendedAt = now;
   else if (!suspended && monitor.suspendedAt !== null) {
     monitor.sinceAt += Math.max(0, now - monitor.suspendedAt);

@@ -1,5 +1,5 @@
 {
-  "testedAt": "2026-09-14T16:01:41.353Z",
+  "testedAt": "2026-09-17T07:03:49.636Z",
   "checks": [
     "independent switches persist across reload without acquiring a writer",
     "live relay failure, SSE update and retry countdown",

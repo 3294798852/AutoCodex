@@ -58,7 +58,7 @@ try {
   await page.waitForFunction(() => Number(document.querySelector('#metric-alerts').textContent) > 0); assert.equal(adapter.sent.length, 0);
   checks.push('explicit failure is visible and raises an alert without sending messages');
   await page.locator('#observation-toggle').click();
-  await page.waitForFunction(() => document.querySelector('#detail-status').textContent === '已停止监测');
+  await page.waitForFunction(() => document.querySelector('#detail-status').textContent === '未监测');
   assert.equal(adapter.interrupted, undefined); checks.push('stop monitoring never interrupts the original conversation');
   await page.locator('#observation-toggle').click(); await page.reload(); await page.locator('#observation-toolbar').waitFor({ state: 'visible' });
   checks.push('reload restores existing monitoring selection');

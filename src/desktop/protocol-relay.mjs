@@ -17,6 +17,8 @@ export class ProtocolRelay extends EventEmitter {
     super(); Object.assign(this, { toServer, toDesktop, approval, now, timeoutMs, approvalTimeoutMs, recycleSecret, onFault });
     this.id = randomUUID(); this.sequence = 0; this.pending = new Map(); this.threads = new Map();
     this.items = new Map(); this.approvals = new Map(); this.resolved = new Set(); this.actions = new Set(); this.internalIds = new Set(); this.closed = false;
+    this.childReads = new Map(); this.childItems = new Map(); this.childReadBusy = false;
+    this.collabVersions = new Map();
   }
   observe(fn) {
     try { return fn(); }
@@ -30,7 +32,12 @@ export class ProtocolRelay extends EventEmitter {
     this.observe(() => this.emit('event', { type, threadId, at: this.now(), ...data }));
   }
   snapshots() {
-    return [...this.threads.values()].filter(t => t.loaded).map(({ template, startParams, error, ...t }) => ({ ...t }));
+    return [...this.threads.values()].filter(t => t.loaded || t.closedAt && this.now() - t.closedAt < 3000).map(({ template, startParams, error, ...t }) => ({ ...t }));
+  }
+  retireCompleted(watched) {
+    for (const t of this.threads.values()) if (t.parentThreadId && !watched.has(t.id) && ['completed', 'interrupted', 'shutdown', 'notFound'].includes(t.agentStatus)) {
+      t.loaded = false; this.releaseItems(t.id); this.childReads.delete(t.id);
+    }
   }
   fromDesktop(message) {
     if (!message || typeof message !== 'object') return this.toServer(message);
@@ -47,7 +54,7 @@ export class ProtocolRelay extends EventEmitter {
         if (p.permissions) { delete t.template.sandboxPolicy; delete t.startParams?.sandbox; }
         if (p.sandboxPolicy) { delete t.template.permissions; delete t.startParams?.permissions; t.sandbox = sandboxMode(p.sandboxPolicy); }
         if (['thread/unsubscribe', 'thread/archive'].includes(message.method)) t.loaded = false;
-        this.event(message.method === 'turn/interrupt' ? 'user_stop' : 'user_change', t.id, { generation: t.generation });
+        this.event(message.method === 'turn/interrupt' ? 'user_stop' : 'user_change', t.id, { generation: t.generation, method: message.method });
       } });
       // Preserve ordinary IDs so oversized messages can still bypass observation.
       const id = this.internalIds.has(message.id) ? `${this.id}:app:${++this.sequence}` : message.id;
@@ -67,9 +74,12 @@ export class ProtocolRelay extends EventEmitter {
       if (!p) { if (this.internalIds.has(message.id)) return; return this.toDesktop(message); }
       this.pending.delete(message.id); clearTimeout(p.timer);
       if (p.method === 'turn/start' && !p.internal) this.thread(p.params.threadId).pendingUser = Math.max(0, this.thread(p.params.threadId).pendingUser - 1);
+      if (!p.internal && message.error && ['turn/start', 'turn/steer'].includes(p.method)) this.event('user_rejected', p.params.threadId, { generation: this.thread(p.params.threadId).generation });
       this.observe(() => { if (!message.error) {
         if (['thread/start', 'thread/resume', 'thread/fork'].includes(p.method) && message.result?.thread) this.rememberThread(message.result.thread, p.params, message.result);
         if (p.method === 'thread/unsubscribe' && p.params.threadId) this.thread(p.params.threadId).loaded = false;
+        if (!p.internal && ['turn/start', 'turn/steer'].includes(p.method)) this.event('user_accepted', p.params.threadId,
+          { turnId: message.result?.turn?.id || message.result?.turnId, generation: this.thread(p.params.threadId).generation });
       } });
       if (p.internal) { p.resolve(message); return; }
       return this.toDesktop({ ...message, id: p.originalId });
@@ -91,7 +101,10 @@ export class ProtocolRelay extends EventEmitter {
   }
   rememberThread(thread, config = {}, result = {}) {
     const t = this.thread(thread.id);
-    t.loaded = true; t.cwd = thread.cwd || config.cwd || t.cwd;
+    const parent = thread.parentThreadId || thread.source?.subAgent?.thread_spawn?.parent_thread_id;
+    if (parent && parent !== thread.id) t.parentThreadId = parent;
+    t.agentNickname = thread.agentNickname || thread.source?.subAgent?.thread_spawn?.agent_nickname || t.agentNickname;
+    t.loaded = thread.status?.type !== 'notLoaded'; t.cwd = thread.cwd || config.cwd || t.cwd;
     t.startParams = { ...(t.startParams || {}), ...Object.fromEntries(threadOptions.filter(k => config[k] != null).map(k => [k, config[k]])) };
     for (const k of ['model', 'modelProvider', 'cwd', 'approvalPolicy', 'approvalsReviewer', 'serviceTier', 'runtimeWorkspaceRoots']) if (result[k] != null) t.startParams[k] = result[k];
     t.model = result.model || thread.model || config.model || t.model;
@@ -108,7 +121,99 @@ export class ProtocolRelay extends EventEmitter {
     if (!t.startParams.permissions) t.startParams.sandbox = t.sandbox === 'external-sandbox' ? 'read-only' : t.sandbox;
     t.name = String(thread.name || thread.preview || t.name || 'Codex').slice(0, 180);
     t.path = thread.path || t.path;
+    if (thread.status?.type) t.runtimeStatus = thread.status;
+    if (thread.status?.type === 'active') { t.active = true; t.agentStatus = 'running'; }
+    for (const turn of (thread.turns || []).slice(-2)) for (const item of turn.items || []) this.collaboration(item, thread.id);
     this.event('loaded', t.id);
+  }
+  policyFor(id, watched) {
+    const seen = new Set();
+    let policy = null;
+    while (id && !seen.has(id)) {
+      seen.add(id);
+      if (watched.get(id)?.excluded) return null;
+      policy ||= watched.get(id);
+      id = this.threads.get(id)?.parentThreadId;
+    }
+    return policy;
+  }
+  async refreshChildren(watched) {
+    if (this.closed || this.childReadBusy) return;
+    this.childReadBusy = true;
+    try {
+      // Root reads recover child relationships when monitoring is enabled mid-turn.
+      const candidates = [...this.threads.values()].filter(t => t.loaded && this.policyFor(t.id, watched)
+        && (t.parentThreadId ? !['shutdown', 'notFound', 'completed', 'interrupted'].includes(t.agentStatus) : true))
+        .sort((a, b) => (this.childReads.get(a.id) || 0) - (this.childReads.get(b.id) || 0));
+      for (const candidate of candidates.slice(0, 2)) {
+        if (this.now() - (this.childReads.get(candidate.id) || 0) < (candidate.parentThreadId ? 1000 : 5000)) continue;
+        this.childReads.set(candidate.id, this.now());
+        const generation = candidate.generation;
+        const priorTurnId = candidate.turnId;
+        const reply = await this.request('thread/read', { threadId: candidate.id, includeTurns: true });
+        const thread = reply.result?.thread;
+        if (!thread || this.closed || candidate.generation !== generation || candidate.turnId !== priorTurnId) continue;
+        const currentReadTurn = thread.turns?.at(-1);
+        if (!candidate.parentThreadId && currentReadTurn && currentReadTurn.id !== candidate.turnId && currentReadTurn.status === 'inProgress') {
+          candidate.turnId = currentReadTurn.id; candidate.active = true; candidate.agentStatus = 'running';
+        }
+        // Reads never subscribe/resume and never infer liveness from a different server.
+        this.rememberThread(thread);
+        if (!candidate.parentThreadId) continue;
+        const turn = thread.turns?.at(-1); if (!turn) continue;
+        if (turn.id !== candidate.turnId) this.notification({ method: 'turn/started', params: { threadId: thread.id, turn: { id: turn.id } } });
+        for (const item of turn.items || []) {
+          if (!['agentMessage', 'commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'collabAgentToolCall', 'collabToolCall'].includes(item.type)) continue;
+          if (item.status && item.status !== 'completed') continue;
+          const itemKey = `${thread.id}:${turn.id}:${item.id}`;
+          if (this.childItems.has(itemKey)) continue;
+          this.childItems.set(itemKey, true);
+          if (this.childItems.size > 2000) this.childItems.delete(this.childItems.keys().next().value);
+          this.notification({ method: 'item/completed', params: { threadId: thread.id, turnId: turn.id, item } });
+        }
+        if (turn.status !== 'inProgress' && candidate.lastReadTerminal !== turn.id) {
+          candidate.lastReadTerminal = turn.id;
+          this.notification({ method: 'turn/completed', params: { threadId: thread.id, turn } });
+        }
+      }
+      const closed = [...this.threads.values()].filter(t => !t.loaded);
+      for (const t of closed.slice(0, Math.max(0, closed.length - 100))) {
+        this.threads.delete(t.id); this.childReads.delete(t.id); this.releaseItems(t.id);
+      }
+    } finally { this.childReadBusy = false; }
+  }
+  collaboration(item, parentId) {
+    if (!['collabAgentToolCall', 'collabToolCall'].includes(item.type)) return;
+    const revisionKey = `${parentId}:${item.id}`;
+    const revision = JSON.stringify([item.tool, item.status, item.agentsStates, item.agentStatus, item.receiverThreadIds]);
+    if (item.id && this.collabVersions.get(revisionKey) === revision) return;
+    if (item.id) this.collabVersions.set(revisionKey, revision);
+    if (this.collabVersions.size > 2000) this.collabVersions.delete(this.collabVersions.keys().next().value);
+    const ids = item.receiverThreadIds || [item.newThreadId || item.receiverThreadId].filter(Boolean);
+    for (const id of ids) {
+      if (id === parentId) continue;
+      const child = this.thread(id);
+      // A message or wait target is not proof of parentage.
+      if (['spawnAgent', 'spawn_agent'].includes(item.tool)) child.parentThreadId ||= item.senderThreadId || parentId;
+      if (!child.parentThreadId) continue;
+      const status = item.agentsStates?.[id]?.status || (ids.length === 1 ? item.agentStatus?.status || item.agentStatus : null);
+      if (typeof status !== 'string') continue;
+      child.agentStatus = status;
+      if (['shutdown', 'notFound', 'interrupted', 'completed'].includes(status)) {
+        child.closedAt = this.now();
+        const message = item.agentsStates?.[id]?.message;
+        if (status === 'completed' && typeof message === 'string') this.event('output', id, { turnId: child.turnId, itemId: `collab:${item.id}:${id}`, text: message.slice(-6000), complete: true });
+        child.active = false;
+        if (['shutdown', 'notFound'].includes(status)) child.loaded = false;
+        this.event('agent_lifecycle', id, { status, turnId: child.turnId });
+        if (['shutdown', 'notFound'].includes(status)) this.releaseItems(id);
+      }
+      if (['running', 'pendingInit'].includes(status)) { child.loaded = true; child.active = true; }
+    }
+  }
+  releaseItems(id) {
+    for (const k of this.items.keys()) if (k.startsWith(id + ':')) this.items.delete(k);
+    for (const entry of this.approvals.values()) if (entry.threadId === id) this.resolveApproval(entry, 'expired');
   }
   notification(message) {
     const p = message.params || {}, id = p.threadId || p.thread?.id;
@@ -120,6 +225,7 @@ export class ProtocolRelay extends EventEmitter {
     const t = this.thread(id), turnId = p.turnId || p.turn?.id || t.turnId;
     if (message.method === 'turn/started') {
       t.loaded = true; t.active = true; t.turnId = turnId; t.failedTurnId = null; t.error = null;
+      t.agentStatus = 'running';
       this.event('started', id, { turnId, generation: t.generation });
     } else if (message.method === 'error') {
       if (turnId === t.turnId) t.error = p.error;
@@ -127,6 +233,7 @@ export class ProtocolRelay extends EventEmitter {
     } else if (message.method === 'turn/completed') {
       if (t.turnId && turnId !== t.turnId) return;
       t.active = false; t.turnId = turnId;
+      t.agentStatus = p.turn?.status === 'failed' ? 'errored' : p.turn?.status;
       t.failedTurnId = p.turn?.status === 'failed' ? turnId : null;
       this.event('terminal', id, { turnId, status: p.turn?.status, error: p.turn?.error || t.error, generation: t.generation });
       for (const entry of this.approvals.values()) if (entry.threadId === id) this.resolveApproval(entry, 'expired');
@@ -135,6 +242,7 @@ export class ProtocolRelay extends EventEmitter {
     } else if (message.method === 'item/started' || message.method === 'item/completed') {
       const item = p.item;
       if (!item) return;
+      this.collaboration(item, id);
       if (message.method === 'item/completed' && item.type === 'mcpToolCall' && item.server === RECYCLE_SERVER) {
         const result = verifiedRecycle(item.result?.structuredContent?._meta, this.recycleSecret);
         if (result) this.event('recycle_result', id, { turnId, result });
@@ -147,7 +255,15 @@ export class ProtocolRelay extends EventEmitter {
       else if (message.method === 'item/completed' && ['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall'].includes(item.type)) {
         this.event('tool', id, { turnId, item: { id: item.id, type: item.type, status: item.status, exitCode: item.exitCode, success: item.success, error: item.error ? true : undefined } });
       }
-    } else if (message.method === 'thread/closed') { t.loaded = false; this.event('unloaded', id); }
+    } else if (message.method === 'thread/status/changed') {
+      t.runtimeStatus = p.status;
+      if (p.status?.type === 'active') t.active = true;
+      if (['idle', 'notLoaded'].includes(p.status?.type)) t.active = false;
+      if (p.status?.type === 'notLoaded') { t.loaded = false; this.releaseItems(id); }
+      this.event('status', id, { turnId, status: p.status });
+    } else if (['thread/closed', 'thread/archived', 'thread/deleted'].includes(message.method)) {
+      t.loaded = false; t.active = false; t.agentStatus = 'shutdown'; t.closedAt = this.now(); this.releaseItems(id); this.event('unloaded', id);
+    }
   }
   resolveApproval(entry, outcome) {
     if (entry.resolved) return;
@@ -184,6 +300,7 @@ export class ProtocolRelay extends EventEmitter {
     this.actions.add(action.id);
     if (this.actions.size > 5000) this.actions.delete(this.actions.values().next().value);
     const t = this.threads.get(action.threadId);
+    if (action.ancestors?.some(p => this.threads.get(p.threadId)?.generation !== p.generation)) return { outcome: 'skipped', reason: '父任务已有人工操作' };
     if (!t?.loaded || t.active || t.pendingUser || t.waiting || t.generation !== action.generation || t.failedTurnId !== action.failedTurnId) {
       return { outcome: 'skipped', reason: '原任务状态已变化，已避让用户操作' };
     }
@@ -234,5 +351,6 @@ export class ProtocolRelay extends EventEmitter {
     this.closed = true;
     for (const p of this.pending.values()) if (p.internal) { clearTimeout(p.timer); p.resolve({ error: { message: '原进程连接关闭', uncertain: true } }); }
     this.pending.clear();
+    this.threads.clear(); this.items.clear(); this.approvals.clear(); this.childReads.clear(); this.childItems.clear(); this.collabVersions.clear();
   }
 }

@@ -1,6 +1,7 @@
 import { DND_LABELS, DND_KEYS, validateDnd, evaluateDnd } from './dnd-policy.mjs';
 import { ExistingSessions } from './existing-sessions.mjs';
 import { DesktopMonitor } from './desktop-monitor.mjs';
+import { TaskFamily } from './task-family.mjs';
 import { ownershipError } from './ownership.mjs';
 import { prepareRecycle, recyclePaths } from './recycle.mjs';
 import { EventEmitter } from 'node:events';
@@ -70,6 +71,7 @@ export class Supervisor extends EventEmitter {
       } else store.saveTask(task);
     }
     this.desktop = new DesktopMonitor(this);
+    this.family = new TaskFamily(this);
   }
 
   exclusive(id, fn) {
@@ -128,6 +130,17 @@ export class Supervisor extends EventEmitter {
       this.store.event(task.id, 'alert', title, { level: severity, data: { code, alertId: alert.id }, now: this.now() });
     });
     this.emit('change', { taskId: task.id, alert });
+  }
+
+  resolveAlerts(task, codes, resolution, at = this.now()) {
+    let changed = false;
+    for (const alert of this.store.records('alerts', task.id)) {
+      if (alert.resolvedAt || alert.createdAt > at || !codes.includes(alert.code)) continue;
+      alert.resolvedAt = this.now(); alert.resolution = resolution;
+      this.store.saveRecord('alerts', alert, task.id); changed = true;
+    }
+    if (changed) this.store.event(task.id, 'issue_resolved', resolution, { now: this.now() });
+    return changed;
   }
 
   async createTask(input) {

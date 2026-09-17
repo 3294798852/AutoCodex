@@ -19,3 +19,26 @@
  .desktop-assist .section-heading { flex-wrap: wrap; gap: 8px; }
  .desktop-assist .settings-note { overflow-wrap: anywhere; }
  @media(max-width:760px){.desktop-assist{padding:16px 18px}}
+
+/* A shared visual system for monitor objects, recovery and permission settings. */
+#view-settings {max-width:1100px;margin:0 auto}
+#view-settings > .panel {margin-bottom:22px;width:100%;max-width:none}
+.settings-intro {padding:20px 24px;margin-bottom:22px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.settings-intro strong {font-size:17px}.settings-intro p {color:var(--muted);font-size:13px;line-height:1.8;margin:10px 0}
+.settings-links {display:flex;flex-wrap:wrap;gap:10px}.settings-links a {padding:8px 14px;border:1px solid var(--line);border-radius:8px;color:var(--mint);font-size:12px;text-decoration:none}
+#view-settings .panel-heading {padding:20px 24px;min-height:70px;border-bottom:1px solid var(--line)}
+#view-settings .settings-fields {padding:20px 24px}#view-settings .settings-panel {max-width:none}
+#view-settings .settings-layout {display:block}#view-settings .settings-aside {display:grid;grid-template-columns:1fr 1fr;gap:22px}
+#view-settings .settings-aside .side-card {margin:0}#view-settings .dnd-row>span {display:block}#view-settings .dnd-row small {display:block;margin-top:6px}
+#view-settings .dnd-row {min-height:76px}.settings-save {font-size:12px;color:var(--mint);min-height:18px;margin-top:10px}
+.object-panel {margin-top:22px}.object-filters {display:flex;gap:12px;padding:0 24px 18px}.object-filters input {flex:1;min-width:0}
+.object-connections {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;padding:0 24px 22px}
+.connection-card {display:flex;gap:10px;flex-wrap:wrap;align-items:center;border:1px solid var(--line);border-radius:10px;padding:18px}.connection-card strong {font-size:13px}.connection-card small {width:100%;font-size:11px;color:var(--muted)}
+.object-row {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 24px;border-top:1px solid var(--line)}
+.object-body {min-width:0}.object-body strong {display:block;font-size:13px;overflow-wrap:anywhere}.object-body small {display:block;margin-top:5px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.object-id {display:block;color:var(--muted);font-size:10px;margin-top:6px;overflow-wrap:anywhere}.object-actions {display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0}
+.family-panel {padding:18px 24px;border-top:1px solid var(--line)}.family-panel .object-row {padding:12px 0;align-items:flex-start}.family-panel .object-actions {justify-content:flex-end;max-width:170px}.family-panel .object-id {display:none}
+.alert-card.acknowledged .alert-indicator {background:#20342d;color:var(--mint)}
+@media(max-width:760px){.object-row{flex-direction:column;align-items:stretch;padding:16px 18px}.object-actions{justify-content:flex-start}.object-connections{padding:0 18px 18px}.object-filters{padding:0 18px 16px;flex-wrap:wrap}.object-filters select{max-width:100%}.family-panel{padding:16px 18px}.family-panel .object-actions{max-width:none;justify-content:flex-start}#view-settings .panel-heading,#view-settings .settings-fields{padding:18px}#view-settings .settings-aside{grid-template-columns:1fr}.settings-intro{padding:18px}.sidebar{gap:10px}.sidebar nav{gap:2px}.nav-item{padding:4px 7px}}
+
+#view-objects .full-panel { min-height: 0; }

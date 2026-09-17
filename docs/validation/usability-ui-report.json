@@ -1,0 +1,17 @@
+{
+  "testedAt": "2026-09-17T06:46:18.599Z",
+  "checks": [
+    "connected service, desktop, parent and child list; exclude and rejoin without interrupt",
+    "join a previously unmonitored loaded task directly from object list",
+    "original Codex manual recovery resolves alert via SSE within 2 seconds and retains history",
+    "unified settings, independent permission toggles, recovery save feedback, reload persistence",
+    "closed child changes to released without a stale running badge"
+  ],
+  "resolutionLatencyMs": 111,
+  "viewports": [
+    1440,
+    390
+  ],
+  "pageErrors": [],
+  "paidModelRequests": 0
+}

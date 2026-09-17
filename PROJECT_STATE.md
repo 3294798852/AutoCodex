@@ -1,6 +1,16 @@
 # AutoCodex 项目接续记录
 
-更新：2026-09-15；当前版本：0.6.0；本轮状态：P14 原窗口自动续发和免打扰已实现，原桌面实测、回归、发布包及本机服务验证通过。当前方案见 docs/17-desktop-relay.md，旧章节保留为历史记录。
+更新：2026-09-17；当前版本：0.7.0；本轮状态：P15 实现、回归、GUI/浏览器与发布搬迁验证完成。当前需求与方案见 docs/18-monitor-usability.md。
+
+## P15 监测与易用性
+
+已实现：告警的“已解决”与确认分离、已确认人工继续后解除普通阻塞、子代理自动发现/继承/释放/重新激活/人工排除、递归进展汇总、只读 thread/read 回补未流送子代理事件、监测对象列表、统一设置、WinForms + WebView2 独立 GUI、默认 Start-AutoCodex.cmd 与网页入口。原用户 Codex 和本机 .mcp.json 保留。
+
+最终回归 178 项自动测试和 69 个模块/JSON 检查通过。真实 CLI 0.153.4 + 原生转接 + 本机上游通过子代理创建、父任务等待、子代理自动批准、进展汇总和关闭释放；连同原有恢复/新任务/回收/离线行为共 30 本机请求，0 付费请求。新版浏览器 1440/390px 全流程通过，人工恢复到页面更新 111ms、无页面错误。GUI 实际认证/呈现、对象操作、重复启动复用、设置保存和关闭保留后台全部通过，见 docs/validation/window-report.json。
+
+0.7.0 ZIP 已通过中文空格目录搬迁、GUI WebView2 Runtime 检查、原生转接、自动发现/手动 CLI、面板启动/关闭及设置重启保留，见 docs/validation/release-v070-runtime-report.json；最终文件清单以 ZIP 内 SHA256SUMS.json 为准。默认双击 Start-AutoCodex.cmd 使用独立窗口；Start-AutoCodexBrowser.cmd 为网页入口。GUI 使用本机 WebView2 Runtime、发布包包含 SDK 与许可证。
+
+设计文档 docs/18-monitor-usability.md；用户文档 docs/09-user-guide.md。发送/回收结果不明保留核对保护；子代理继承主任务开关但达到阈值后不创建与父代理失联的替代任务；缺失流式事件时使用有界只读回补，延迟随子代理数量增加。当前轮不开发手机端。Git 和本机进程最终状态以仓库及本机检查为准，不终止用户 Codex、不向原任务发测试消息，.mcp.json 是本机配置，不提交。
 
 ## P14 原 Codex 自动辅助
 

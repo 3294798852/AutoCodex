@@ -1,5 +1,5 @@
 {
-  "testedAt": "2026-09-14T13:39:03.252Z",
+  "testedAt": "2026-09-17T07:04:05.778Z",
   "checks": [
     "existing conversations list, pagination and local-file launch",
     "search and one-click attach without ID, directory or new prompt",
@@ -15,13 +15,13 @@
   ],
   "samples": 5,
   "latencyMs": [
-    161,
+    1158,
     1039,
-    1056,
-    1033,
-    1022
+    1035,
+    1040,
+    1068
   ],
-  "p95Ms": 1056,
+  "p95Ms": 1158,
   "browserErrors": [],
   "scope": "isolated history fixtures; real filesystem/HTTP/SSE/browser; no paid requests"
 }

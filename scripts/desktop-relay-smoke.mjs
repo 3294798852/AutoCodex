@@ -15,6 +15,7 @@ mkdirSync('.work', { recursive: true });
 const root = mkdtempSync(resolve('.work/desktop-relay-')), home = join(root, 'codex'), workspace = join(root, 'workspace');
 mkdirSync(home); mkdirSync(workspace);
 let mode = 'normal', requests = 0, lastInput, faultBudget = 0;
+let familyRun = false, familySpawned = false, familyWaited = false, familyClosed = false, childCommand = false, childId;
 const recycleFile = join(workspace, 'AutoCodex-desktop-recycle-' + randomUUID() + '.txt');
 const upstream = createServer(async (req, res) => {
   let text = ''; for await (const c of req) text += c;
@@ -24,10 +25,24 @@ const upstream = createServer(async (req, res) => {
     res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'Local upstream unavailable', type: 'server_error' } })); return;
   }
   const id = 'fixture_' + randomUUID().replaceAll('-', '');
-  const output = mode === 'recycle' ? [{ type: 'function_call', id: 'fc_' + id, call_id: 'call_' + id, namespace: 'mcp__autocodex_recycle', name: 'recycle', arguments: JSON.stringify({ paths: [recycleFile] }), status: 'completed' }]
+  let output = mode === 'recycle' ? [{ type: 'function_call', id: 'fc_' + id, call_id: 'call_' + id, namespace: 'mcp__autocodex_recycle', name: 'recycle', arguments: JSON.stringify({ paths: [recycleFile] }), status: 'completed' }]
     : mode === 'command' ? [{ type: 'function_call', id: 'fc_' + id, call_id: 'call_' + id, name: 'exec_command',
     arguments: JSON.stringify({ cmd: 'git status --short', workdir: process.cwd(), sandbox_permissions: 'require_escalated', justification: 'Local read-only fixture.', max_output_tokens: 100 }), status: 'completed' }]
     : [{ type: 'message', id: 'msg_' + id, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Isolated desktop relay fixture completed successfully.', annotations: [] }] }];
+  if (familyRun) {
+    const call = (name, args, namespace) => [{ type: 'function_call', id: 'fc_' + id, call_id: 'call_' + id, name, ...(namespace ? { namespace } : {}), arguments: JSON.stringify(args), status: 'completed' }];
+    const isChild = JSON.stringify(body.input.filter(i => i.type === 'message' && i.role === 'user')).includes('CHILD_MONITOR_FIXTURE');
+    if (isChild && !childCommand) {
+      childCommand = true; await new Promise(r => setTimeout(r, 1800));
+      output = call('exec_command', { cmd: 'git status --short', workdir: process.cwd(), sandbox_permissions: 'require_escalated', justification: 'Local child fixture', max_output_tokens: 100 });
+    } else if (!isChild && !familySpawned) {
+      familySpawned = true; output = call('spawn_agent', { message: 'CHILD_MONITOR_FIXTURE. Local read-only fixture only.' }, 'multi_agent_v1');
+    } else if (!isChild && !familyWaited && childId) {
+      familyWaited = true; output = call('wait_agent', { targets: [childId], timeout_ms: 10000 }, 'multi_agent_v1');
+    } else if (!isChild && !familyClosed && childId) {
+      familyClosed = true; output = call('close_agent', { target: childId }, 'multi_agent_v1');
+    }
+  }
   if (['command', 'recycle'].includes(mode)) mode = 'normal';
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
   const send = (event, payload) => res.write(`event: ${event}\ndata: ${JSON.stringify({ type: event, ...payload })}\n\n`);
@@ -49,7 +64,15 @@ writeFileSync(configPath, JSON.stringify({ codex: runtime.command, codexArgs: ru
 const desktop = new JsonlRpcClient({ command: relayPath, args: ['app-server', '--listen', 'stdio://'], env: { ...env,
   CODEX_CLI_PATH: relayPath, AUTOCODEX_RELAY_NODE: process.execPath, AUTOCODEX_RELAY_SCRIPT: resolve('src/desktop/main.mjs'), AUTOCODEX_RELAY_CONFIG: configPath } });
 const notices = [], manual = [], diagnostics = [], checks = [];
-desktop.on('notification', n => notices.push(n));
+desktop.on('notification', n => {
+  notices.push(n);
+  if (familyRun && n.method === 'thread/started') {
+    const t = n.params.thread;
+    if (t.parentThreadId || t.source?.subAgent?.thread_spawn?.parent_thread_id) childId = t.id;
+  }
+  const item = n.params?.item;
+  if (familyRun && item?.type === 'collabAgentToolCall' && item.tool === 'spawnAgent' && item.receiverThreadIds?.[0]) childId = item.receiverThreadIds[0];
+});
 desktop.on('diagnostic', d => diagnostics.push(d.message));
 desktop.on('request', r => { manual.push(r); void desktop.respond(r.id, r.method === 'mcpServer/elicitation/request' ? { action: 'cancel' } : { decision: 'accept' }); });
 const waitFor = async (fn, label, timeout = 35000) => {
@@ -91,13 +114,24 @@ try {
   await send(recovery.threadId);
   await waitFor(() => store.task(recovery.id).threadChain.length === 2 && store.task(recovery.id).assist.phase === 'completed', 'successful fresh task');
   checks.push('replacement succeeds and stays visible through original connection');
+  const family = await enroll();
+  supervisor.setDnd({ revision: supervisor.dnd.revision, commonCommands: true, outsideWorkspace: true });
+  familyRun = true; const familyTurn = await send(family.threadId, 'PARENT_MONITOR_FIXTURE. Verify the isolated child fixture.');
+  await waitFor(() => complete(familyTurn.id), 'parent waits for child then closes child');
+  await waitFor(() => store.tasks().some(t => t.parentTaskId === family.id && t.releasedAt), 'completed child monitor released');
+  const monitoredChild = store.tasks().find(t => t.parentTaskId === family.id);
+  assert.equal(monitoredChild.totalAutoApprovals, 1); assert.equal(manual.length, 0);
+  assert.equal(store.task(family.id).familyProgress.threadId, monitoredChild.threadId);
+  assert(familyWaited && familyClosed); assert.equal(monitoredChild.observation.enabled, false);
+  checks.push('real spawned child discovered, permission inherited, progress aggregated while parent waits, closed child released');
+  familyRun = false;
   const approvals = await enroll();
-  supervisor.setDnd({ revision: 0, commonCommands: true, outsideWorkspace: true });
+  supervisor.setDnd({ revision: supervisor.dnd.revision, commonCommands: true, outsideWorkspace: true });
   mode = 'command'; const run = await send(approvals.threadId); await waitFor(() => complete(run.id), 'automatic command approval');
   await waitFor(() => store.task(approvals.id).totalAutoApprovals === 1, 'approval audit');
   assert.equal(manual.length, 0); checks.push('real command permission automatically answered without desktop prompt');
   writeFileSync(recycleFile, 'Isolated original desktop recycle fixture');
-  supervisor.setDnd({ revision: 1, recycleDeletes: true });
+  supervisor.setDnd({ revision: supervisor.dnd.revision, recycleDeletes: true });
   mode = 'recycle'; const recycling = await send(approvals.threadId); await waitFor(() => complete(recycling.id), 'original desktop MCP recycle');
   assert.equal(existsSync(recycleFile), false, 'MCP recycle must move the fixture to Recycle Bin');
   await waitFor(() => store.events({ taskId: approvals.id }).some(e => e.type === 'desktop_recycle_result'), 'recycle audit');

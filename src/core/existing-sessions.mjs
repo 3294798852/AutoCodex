@@ -60,12 +60,15 @@ export class ExistingSessions {
       source: typeof t.source === 'string' ? t.source : 'appServer',
       taskId: tasks.find(task => task.threadId === t.id)?.id || null })), nextCursor: page.nextCursor || null };
   }
-  countCheck() { assert(this.s.store.tasks().filter(t => !['completed', 'stopped', 'failed'].includes(t.status)).length < 20, '本机最多同时监护 20 个任务', 409); }
+  countCheck() { assert(this.s.store.tasks().filter(t => !t.parentTaskId && !['completed', 'stopped', 'failed'].includes(t.status)).length < 20, '本机最多同时监护 20 个主任务', 409); }
   async add(input) {
     const threadId = idText(input.threadId);
     return this.s.exclusive('observation:add', async () => {
       const existing = this.s.store.tasks().find(t => t.threadId === threadId || t.adoptThreadId === threadId);
-      if (existing) return existing;
+      if (existing) {
+        if (existing.controlMode === 'observe' && !existing.observation.enabled) return this.s.control(existing.id, 'observe_start');
+        return existing;
+      }
       this.countCheck();
       assert(this.s.adapter.readThreadSummary, '当前运行模式不支持已有会话监测', 405);
       const thread = await this.s.adapter.readThreadSummary(threadId);
@@ -102,7 +105,10 @@ export class ExistingSessions {
       if (!task.turnId && evidence.turnId) task.turnId = evidence.turnId;
       o.lastRecordAt = evidence.at; changed = true;
       const terminal = ['completed', 'interrupted', 'failed'].includes(o.evidence);
-      if (evidence.kind === 'started') { task.turnId = evidence.turnId; o.staleAlerted = false; task.lastError = null; }
+      if (evidence.kind === 'started') {
+        task.turnId = evidence.turnId; o.staleAlerted = false; task.lastError = null;
+        this.s.resolveAlerts(task, ['observed_error', 'observation_stale'], '原任务已开始新的回合', evidence.at);
+      }
       if (['started', 'completed', 'interrupted', 'failed', 'error', 'waiting_user'].includes(evidence.kind)) o.evidence = evidence.kind;
       else if (!terminal && o.evidence !== 'waiting_user' || evidence.kind === 'output' || evidence.kind === 'tool') {
         if (!terminal) o.evidence = 'activity';
@@ -119,11 +125,12 @@ export class ExistingSessions {
       else if (messages[evidence.kind]) this.s.record(task, `observed_${evidence.kind}`, messages[evidence.kind], { now: evidence.at });
     }
     o.cursor = batch.cursor; o.checkedAt = now; o.pendingBytes = batch.pendingBytes;
+    this.s.resolveAlerts(task, ['observation_unavailable'], '原任务记录已恢复可读');
     const phase = o.evidence === 'failed' ? 'error' : ['completed', 'interrupted', 'error', 'waiting_user'].includes(o.evidence) ? o.evidence
       : o.lastActivityAt && now - o.lastActivityAt <= OBSERVATION_FRESH_MS ? 'active_recent' : 'unknown';
     changed ||= phase !== o.phase; o.phase = phase;
-    if (!baseline && !o.staleAlerted && (phase === 'unknown' || o.evidence === 'error')
-      && now - Math.max(o.attachedAt, o.lastActivityAt || 0) >= task.policy.noOutputTimeoutMs) {
+    if (!task.assist?.connected && !baseline && !o.staleAlerted && (phase === 'unknown' || o.evidence === 'error')
+      && now - Math.max(o.attachedAt, o.lastActivityAt || 0, task.familyProgress?.at || 0) >= task.policy.noOutputTimeoutMs) {
       o.staleAlerted = true;
       this.s.alert(task, 'observation_stale', '原会话较长时间没有新活动记录，运行状态待确认，请到原客户端核对', { preserveStatus: true, severity: 'warning' });
     }
@@ -153,7 +160,7 @@ export class ExistingSessions {
   }
   tick() {
     for (const task of this.s.store.tasks()) {
-      if (task.controlMode !== 'observe' || !task.observation.enabled || this.pending.has(task.id) || this.s.now() < (this.due.get(task.id) || 0)) continue;
+      if (task.controlMode !== 'observe' || !task.observation.enabled || task.parentTaskId && task.assist?.connected || !task.observation.path || this.pending.has(task.id) || this.s.now() < (this.due.get(task.id) || 0)) continue;
       this.due.set(task.id, this.s.now() + 1000); this.pending.add(task.id);
       this.s.exclusive(task.id, () => this.poll(task.id)).catch(error => this.s.fault(error)).finally(() => this.pending.delete(task.id));
     }
@@ -161,11 +168,19 @@ export class ExistingSessions {
   async control(task, action, input) {
     const o = task.observation;
     if (action === 'observe_stop' || action === 'observe_start') {
-      if (action === 'observe_start' && !o.enabled) this.countCheck();
+      if (task.parentTaskId && action === 'observe_start') assert(this.s.family.ancestors(task).every(t => t.observation.enabled), '请先加入父任务监测', 409);
+      if (action === 'observe_start' && !o.enabled && !task.parentTaskId) this.countCheck();
       o.enabled = action === 'observe_start'; task.status = o.enabled ? 'observing' : 'stopped';
-      if (!o.enabled) this.s.desktop.cancel(task, '用户停止监测');
+      if (task.parentTaskId) task.monitorExcluded = !o.enabled;
+      if (!o.enabled) {
+        this.s.desktop.cancel(task, '用户停止监测');
+        task.assist && (task.assist.connected = false);
+        this.s.store.saveTask(task);
+        await this.s.family.stopDescendants(task.id);
+        this.due.delete(task.id); this.published.delete(task.id);
+      }
       this.s.record(task, action, o.enabled ? '已恢复原会话监测' : '已停止监测；原会话继续由原客户端管理');
-      if (o.enabled) await this.poll(task.id);
+      if (o.enabled && o.path) await this.poll(task.id);
     } else if (action === 'observe_refresh') await this.poll(task.id);
     else if (action === 'adopt') {
       assert(input.ownershipConfirmed === true, '请先确认原客户端已释放会话连接；仅停止回复还不能移交', 409);

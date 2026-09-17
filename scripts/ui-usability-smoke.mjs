@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fixture } from './usability-fixture.mjs';
+
+const require = createRequire(import.meta.url), { chromium } = require(process.env.AUTOCODEX_PLAYWRIGHT_MODULE || 'playwright');
+const executablePath = [process.env.AUTOCODEX_BROWSER_PATH, chromium.executablePath(), join(process.env.ProgramFiles || '', 'Google', 'Chrome', 'Application', 'chrome.exe')].find(p => p && existsSync(p));
+const f = await fixture(), checks = [], errors = []; let browser;
+try {
+  browser = await chromium.launch({ executablePath, headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1080 }, locale: 'zh-CN' });
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto(pathToFileURL(f.address.launchPath).href);
+  await page.locator('#task-detail').waitFor();
+  await page.locator('[data-view="objects"]').click();
+  await page.locator('#object-list [data-thread-id="child"]').waitFor();
+  assert.match(await page.locator('#object-connections').innerText(), /原窗口连接/);
+  await page.locator('#object-list [data-thread-id="child"]').getByRole('button', { name: '移除监测' }).click();
+  await page.waitForFunction(() => document.querySelector('#object-list [data-thread-id="child"]')?.textContent.includes('加入监测'));
+  assert.equal(f.store.tasks().find(t => t.threadId === 'child').monitorExcluded, true);
+  await page.locator('#object-list [data-thread-id="child"]').getByRole('button', { name: '加入监测' }).click();
+  await page.waitForFunction(() => document.querySelector('#object-list [data-thread-id="child"]')?.textContent.includes('移除监测'));
+  checks.push('connected service, desktop, parent and child list; exclude and rejoin without interrupt');
+  await page.locator('#object-list [data-thread-id="other"]').getByRole('button', { name: '加入监测' }).click();
+  await page.waitForFunction(() => document.querySelector('#object-list [data-thread-id="other"]')?.textContent.includes('移除监测'));
+  checks.push('join a previously unmonitored loaded task directly from object list');
+  f.notify('turn/completed', 'root', { turn: { id: 'root-turn', status: 'failed', error: { message: 'HTTP 401 Unauthorized' } } }); await f.poll();
+  await page.waitForFunction(() => Number(document.querySelector('#metric-alerts').textContent) > 0);
+  const before = Date.now();
+  f.relay.fromDesktop({ id: 5, method: 'turn/start', params: { threadId: 'root', input: [] } }); f.start('root', 'manual-fixed');
+  f.relay.fromServer({ id: 5, result: { turn: { id: 'manual-fixed' } } }); await f.poll();
+  await page.waitForFunction(() => document.querySelector('#metric-alerts').textContent === '0');
+  const resolutionLatencyMs = Date.now() - before; assert(resolutionLatencyMs < 2000);
+  await page.locator('[data-view="alerts"]').click(); assert.match(await page.locator('#alerts-list').innerText(), /已解决/);
+  checks.push('original Codex manual recovery resolves alert via SSE within 2 seconds and retains history');
+  await page.locator('[data-view="settings"]').click();
+  await page.locator('#dnd-commonCommands').check();
+  await page.waitForFunction(() => !document.querySelector('#dnd-commonCommands').disabled);
+  await page.locator('#setting-delay').fill('3'); await page.locator('#settings-form button[type="submit"]').click();
+  await page.waitForFunction(() => document.querySelector('#recovery-save-status').textContent.includes('规则已保存'));
+  assert.equal(f.supervisor.defaultPolicy.baseDelayMs, 3000);
+  await page.screenshot({ path: 'docs/assets/settings-v070.png', fullPage: true });
+  await page.reload(); await page.locator('[data-view="settings"]').click();
+  assert.equal(await page.locator('#dnd-commonCommands').isChecked(), true); assert.equal(await page.locator('#setting-delay').inputValue(), '3');
+  checks.push('unified settings, independent permission toggles, recovery save feedback, reload persistence');
+  await page.locator('[data-view="objects"]').click(); await page.screenshot({ path: 'docs/assets/objects-v070.png', fullPage: true });
+  f.notify('thread/closed', 'child'); await f.poll();
+  await page.waitForFunction(() => document.querySelector('#object-list [data-thread-id="child"]')?.textContent.includes('已释放监测'));
+  checks.push('closed child changes to released without a stale running badge');
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const view of ['objects', 'settings', 'monitor', 'alerts']) {
+    await page.locator(`[data-view="${view}"]`).click();
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), view + ' overflow');
+  }
+  await page.locator('[data-view="objects"]').click(); await page.screenshot({ path: 'docs/assets/objects-v070-narrow.png', fullPage: true });
+  assert.deepEqual(errors, []);
+  const report = { testedAt: new Date().toISOString(), checks, resolutionLatencyMs, viewports: [1440, 390], pageErrors: errors, paidModelRequests: 0 };
+  writeFileSync('docs/validation/usability-ui-report.json', JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
+} finally { await browser?.close(); await f.close(); }

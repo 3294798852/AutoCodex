@@ -1,15 +1,16 @@
-﻿param([string]$DesktopPath, [string]$CodexPath, [string]$DataDir, [int]$Port = 3210, [switch]$CheckOnly, [switch]$NoBrowser)
+﻿param([string]$DesktopPath, [string]$CodexPath, [string]$DataDir, [int]$Port = 3210, [switch]$CheckOnly, [switch]$NoBrowser, [switch]$Browser)
 $ErrorActionPreference = 'Stop'
 $runtimeDirectory = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'runtime\src\main.mjs')) { Join-Path $PSScriptRoot 'runtime' } else { $PSScriptRoot }
 $nodeExecutable = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 if (-not $DataDir) { $DataDir = if ($env:AUTOCODEX_DATA_DIR) { $env:AUTOCODEX_DATA_DIR } else { Join-Path $runtimeDirectory '.autocodex\live' } }
 $DataDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataDir)
-$parameters = @{ DataDir = $DataDir; NoBrowser = [bool]$NoBrowser }
+$parameters = @{ DataDir = $DataDir; NoBrowser = $true }
 if ($PSBoundParameters.ContainsKey('Port')) { $parameters.Port = $Port }
 if ($PSBoundParameters.ContainsKey('CodexPath')) { $parameters.CodexPath = $CodexPath }
 if (-not $CheckOnly) {
     & (Join-Path $PSScriptRoot 'Start-AutoCodex.ps1') @parameters
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if (-not $NoBrowser) { & (Join-Path $PSScriptRoot 'Open-AutoCodexWindow.ps1') -DataDir $DataDir -Browser:$Browser }
 }
 $relayExecutable = Join-Path $runtimeDirectory 'native\AutoCodexRelay.exe'
 if (-not (Test-Path -LiteralPath $relayExecutable)) {

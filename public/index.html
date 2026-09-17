@@ -27,18 +27,19 @@
       <div class="nav-label">工作台</div>
       <nav aria-label="主导航">
         <button class="nav-item active" data-view="monitor"><span class="nav-symbol">◫</span><span>运行监测</span></button>
+        <button class="nav-item" data-view="objects" aria-label="监测对象"><span class="nav-symbol">☷</span><span>监测对象</span></button>
         <button class="nav-item" data-view="alerts"><span class="nav-symbol">◇</span><span>告警中心</span><b id="nav-alert-count" class="nav-count" hidden>0</b></button>
-        <button class="nav-item" data-view="settings"><span class="nav-symbol">⚙</span><span>恢复设置</span></button>
+        <button class="nav-item" data-view="settings" aria-label="自动辅助设置"><span class="nav-symbol">⚙</span><span>自动辅助设置</span></button>
       </nav>
       <div class="sidebar-bottom">
         <div class="local-label"><i class="dot mint"></i><span>数据保存在本机</span></div>
-        <div class="version-label">PC 本地监护 <span id="app-version">v0.6.0</span></div>
+        <div class="version-label">PC 本地监护 <span id="app-version">v0.7.0</span></div>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div><div class="eyebrow">AUTOCODEX / WORKSPACE</div><h1 id="page-title">运行监测</h1><p id="page-subtitle">掌握任务进展，让每一次异常都有记录。</p></div>
+        <div><div class="eyebrow">AUTOCODEX / WORKSPACE</div><h1 id="page-title">运行监测</h1><p id="page-subtitle">在 Codex 照常工作，这里同步任务和子代理进展。</p></div>
         <div class="top-actions"><span id="mode-badge" class="badge neutral">本机监护</span><span id="stream-status" class="live-status"><i class="dot"></i>连接中</span><button id="existing-tasks" class="button secondary">已有会话</button><button id="new-task" class="button primary"><span aria-hidden="true">＋</span> 新建监护任务</button></div>
       </header>
 
@@ -79,6 +80,7 @@
                 <button id="assist-reset" class="button compact" hidden>已核对，恢复自动辅助</button>
               </div>
               <div id="retry-banner" class="retry-banner" hidden><span class="spinner"></span><span id="retry-message"></span></div>
+              <section id="task-family" class="family-panel" hidden><div class="section-heading"><h3>任务与子代理</h3><span id="family-summary" class="tiny-label"></span></div><p id="family-progress" class="settings-note"></p><div id="family-list"></div></section>
               <div id="managed-recovery" class="recovery-card"><div class="section-heading"><h3>恢复进度</h3><select id="task-strategy" aria-label="当前任务接续策略"><option value="manual">达到阈值 · 人工处理</option><option value="new_session">达到阈值 · 新会话接续</option></select></div><div id="recovery-track" class="recovery-track"></div><p id="failure-evidence" class="recovery-note"></p><p id="output-watch" class="recovery-note"></p><div class="recovery-foot"><span id="retry-budget"></span><span id="session-count"></span></div></div>
               <p id="dnd-task-info" class="panel-description"></p><div id="approval-list" class="approval-list"></div>
               <div class="detail-tabs" role="tablist" aria-label="任务内容"><button class="detail-tab active" data-detail="timeline" role="tab">事件时间线</button><button class="detail-tab" data-detail="output" role="tab">最近输出</button><button class="detail-tab" data-detail="handoff" role="tab">会话与交接</button></div>
@@ -90,9 +92,15 @@
         </div>
       </section>
 
-      <section id="view-alerts" class="view" hidden><div class="panel full-panel"><div class="panel-heading"><h2>告警记录</h2><a class="text-button" href="/api/v1/export" download>导出运行记录 ↓</a></div><div class="panel-description">确认只表示你已知晓告警。任务是否继续，由你单独决定。</div><div id="alerts-list"></div></div></section>
+      <section id="view-objects" class="view" hidden>
+        <section class="panel full-panel"><div class="panel-heading"><h2>监管程序</h2><span class="badge neutral">本机连接</span></div><div id="object-connections" class="object-connections"></div></section>
+        <section class="panel full-panel object-panel"><div class="panel-heading"><h2>被监管任务</h2><button id="objects-add" class="button primary">＋ 加入已有任务</button></div><p class="panel-description">主任务自动覆盖活跃子代理。移除监测后，Codex 中的工作继续运行。</p><div class="object-filters"><input id="object-search" type="search" placeholder="搜索任务、子代理或目录" aria-label="搜索监测对象"><select id="object-filter" aria-label="筛选监测对象"><option value="all">全部对象</option><option value="watched">正在监测</option><option value="unwatched">未监测 / 已释放</option><option value="children">子代理</option></select></div><div id="object-list"></div></section>
+      </section>
+
+      <section id="view-alerts" class="view" hidden><div class="panel full-panel"><div class="panel-heading"><h2>告警记录</h2><a class="text-button" href="/api/v1/export" download>导出运行记录 ↓</a></div><div class="panel-description">在 Codex 中处理后，已解决的问题会自动更新并保留历史。结果仍不确定的操作会保留核对提示。</div><div id="alerts-list"></div></div></section>
 
       <section id="view-settings" class="view" hidden>
+        <div class="settings-intro"><strong>自动辅助设置</strong><p>先在任务详情开启自动续发或免打扰，再在这里调整规则。活跃子代理自动跟随父任务。</p><div class="settings-links"><a href="#settings-form">续发规则</a><a href="#dnd-panel">免打扰</a><a href="#codex-path-form">安装路径</a></div></div>
 
         <section id="dnd-panel" class="panel dnd-panel" aria-labelledby="dnd-title">
           <div class="panel-heading"><div class="dnd-heading"><h2 id="dnd-title">免打扰</h2><span id="dnd-count">已开启 0 / 5</span></div><label class="dnd-master"><input id="dnd-all" type="checkbox" role="switch" aria-label="免打扰全部开关"><span id="dnd-all-label">全部开</span></label></div>

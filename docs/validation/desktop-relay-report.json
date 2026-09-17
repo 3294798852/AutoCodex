@@ -1,18 +1,19 @@
 {
-  "testedAt": "2026-09-14T16:01:57.668Z",
+  "testedAt": "2026-09-17T06:46:51.723Z",
   "scope": "real native relay and Codex CLI, simulated desktop RPC client, isolated local upstream",
-  "codex": "Codex Desktop/0.153.4 (Windows 10.0.26200; x86_64) dumb (autocodex_guard; 0.6.0)",
+  "codex": "Codex Desktop/0.153.4 (Windows 10.0.26200; x86_64) dumb (autocodex_guard; 0.7.0)",
   "checks": [
     "native exe starts real CLI and forwards initialization",
     "same original writer: initial 503 plus two continues then alert",
     "desktop receives all automatic turn notifications",
     "fresh original-desktop task receives handoff; immediate first failure halts",
     "replacement succeeds and stays visible through original connection",
+    "real spawned child discovered, permission inherited, progress aggregated while parent waits, closed child released",
     "real command permission automatically answered without desktop prompt",
     "original-desktop MCP tool: signed confirmation, native recycle, result audit and fixture restoration",
     "disabled switch preserves original desktop approval",
     "monitor offline: normal conversation and manual approval still work"
   ],
-  "localRequests": 23,
+  "localRequests": 30,
   "paidModelRequests": 0
 }
