@@ -17,6 +17,12 @@ try {
     $reader = [System.IO.StreamReader]::new($archive.GetEntry($prefix + '.mcp.json').Open())
     try { $template = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
     if (@($template.mcpServers.PSObject.Properties).Count -ne 0) { throw 'MCP template must not contain build-machine paths' }
+    $windowConfig = $archive.GetEntry($prefix + 'runtime/native/AutoCodexWindow.exe.config')
+    if (-not $archive.GetEntry($prefix + 'Open-AutoCodexWindow.cmd')) { throw 'Missing window-only launcher' }
+    if (-not $windowConfig) { throw 'Missing native window DPI configuration' }
+    $reader = [System.IO.StreamReader]::new($windowConfig.Open())
+    try { [xml]$dpiConfig = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    if (-not $dpiConfig.SelectSingleNode('/configuration/System.Windows.Forms.ApplicationConfigurationSection/add[@key="DpiAwareness" and @value="PerMonitorV2"]')) { throw 'Native window must enable PerMonitorV2' }
     $verified = 0
     foreach ($entry in $archive.Entries) {
         if ($entry.FullName -match '(^|/)(\.autocodex|\.work|\.git)/|(^|/)(connection\.json|open-panel\.html|guard\.sqlite[^/]*)$') { throw 'Runtime data found in package' }

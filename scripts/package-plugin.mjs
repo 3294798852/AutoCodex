@@ -22,7 +22,7 @@ if (process.platform === 'win32') {
   if (windowBuild.status !== 0) throw new Error(windowBuild.stderr || windowBuild.stdout || 'Window build failed');
 }
 writeFileSync(join(runtime, 'package.json'), JSON.stringify({ name: 'autocodex-guard-runtime', version, private: true, type: 'module', engines: { node: '>=24.0.0' }, scripts: { start: 'node src/main.mjs', demo: 'node src/main.mjs --demo', 'diagnose:codex': 'node src/main.mjs --diagnose-codex' } }, null, 2));
-for (const filename of ['Start-AutoCodex.ps1', 'Start-AutoCodex.cmd', 'Start-AutoCodexBrowser.cmd', 'Open-AutoCodexWindow.ps1', 'Start-AutoCodexDesktop.ps1', 'Start-AutoCodexDesktop.cmd', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'README.md', 'PROJECT_STATE.md']) cpSync(join(project, filename), join(output, filename));
+for (const filename of ['Start-AutoCodex.ps1', 'Start-AutoCodex.cmd', 'Start-AutoCodexBrowser.cmd', 'Open-AutoCodexWindow.ps1', 'Open-AutoCodexWindow.cmd', 'Start-AutoCodexDesktop.ps1', 'Start-AutoCodexDesktop.cmd', 'Stop-AutoCodex.ps1', 'Configure-LocalPlugin.ps1', 'README.md', 'PROJECT_STATE.md']) cpSync(join(project, filename), join(output, filename));
 cpSync(join(project, 'docs'), join(output, 'docs'), { recursive: true });
 
 // A distribution has no machine-specific MCP wiring. The startup/configuration

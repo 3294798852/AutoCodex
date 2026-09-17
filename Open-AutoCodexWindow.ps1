@@ -7,7 +7,10 @@ if ($Browser) { Invoke-Item -LiteralPath (Join-Path $DataDir 'open-panel.html');
 $windowExecutable = Join-Path $runtimeDirectory 'native\AutoCodexWindow.exe'
 if (-not (Test-Path -LiteralPath $windowExecutable)) {
     $windowExecutable = Join-Path $PSScriptRoot '.work\desktop-runtime\AutoCodexWindow.exe'
-    if (-not (Test-Path -LiteralPath $windowExecutable)) { & (Join-Path $PSScriptRoot 'scripts\build-window.ps1') | Out-Null }
+    $buildInputs = @('src\native\MonitorWindow.cs', 'src\native\MonitorWindow.manifest', 'src\native\MonitorWindow.config', 'scripts\build-window.ps1') | ForEach-Object { Get-Item -LiteralPath (Join-Path $PSScriptRoot $_) }
+    $needsBuild = -not (Test-Path -LiteralPath $windowExecutable) -or -not (Test-Path -LiteralPath ($windowExecutable + '.config'))
+    if (-not $needsBuild) { $needsBuild = @($buildInputs | Where-Object { $_.LastWriteTimeUtc -gt (Get-Item -LiteralPath $windowExecutable).LastWriteTimeUtc }).Count -gt 0 }
+    if ($needsBuild) { & (Join-Path $PSScriptRoot 'scripts\build-window.ps1') | Out-Null }
 }
 $connectionPath = Join-Path $DataDir 'connection.json'
 if (-not (Test-Path -LiteralPath $connectionPath)) { throw '请先运行 Start-AutoCodex.cmd。' }

@@ -12,10 +12,16 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
+[assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
+
 // The window hosts the authenticated local panel; no privileged JavaScript bridge.
 internal static class MonitorWindow {
     [STAThread]
     private static int Main(string[] args) {
+        // WinForms reads PerMonitorV2 from the adjacent exe.config here, before
+        // WebView2 or any native window can lock the process to unaware scaling.
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
         try {
             if (args.Length < 1) throw new Exception("请从 Start-AutoCodex.cmd 启动 AutoCodex。");
             string path = Path.GetFullPath(args[0]);
@@ -31,7 +37,6 @@ internal static class MonitorWindow {
             using (var mutex = new Mutex(true, "Local\\AutoCodex.Window." + hash, out created))
             using (var wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\AutoCodex.Wake." + hash)) {
                 if (!created) { wake.Set(); return 0; }
-                Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new Dashboard(path, origin, wake)); mutex.ReleaseMutex();
             }
             return 0;
@@ -50,6 +55,9 @@ internal sealed class Dashboard : Form {
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
     private readonly ToolStripStatusLabel status = new ToolStripStatusLabel("正在连接本机监测服务…");
     public Dashboard(string connectionPath, string serviceOrigin, EventWaitHandle wakeEvent) {
+        SuspendLayout();
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         path = connectionPath; origin = serviceOrigin; wake = wakeEvent;
         Text = "AutoCodex · 本机监护"; Width = 1360; Height = 920; MinimumSize = new Size(700, 540); StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(12, 17, 24);
@@ -79,7 +87,24 @@ internal sealed class Dashboard : Form {
                 view.CoreWebView2.Navigate(LaunchUrl());
             } catch (Exception error) { status.Text = "窗口加载失败，可点击“在浏览器打开”：" + error.Message; }
         };
+        // Clamp only after native placement and initial DPI layout have finished.
+        Shown += delegate { BeginInvoke((Action)delegate { if (!IsDisposed) FitWorkingArea(true); }); };
         FormClosed += delegate { timer.Stop(); timer.Dispose(); view.Dispose(); };
+        ResumeLayout(true);
+    }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) {
+        base.OnDpiChanged(e);
+        // Let WinForms apply its new DPI bounds before clamping to the new screen.
+        BeginInvoke((Action)delegate { if (!IsDisposed) FitWorkingArea(false); });
+    }
+    private void FitWorkingArea(bool center) {
+        if (WindowState != FormWindowState.Normal) return;
+        var area = Screen.FromControl(this).WorkingArea;
+        MinimumSize = new Size(Math.Min(LogicalToDeviceUnits(700), area.Width), Math.Min(LogicalToDeviceUnits(540), area.Height));
+        int width = Math.Min(Width, area.Width), height = Math.Min(Height, area.Height);
+        int left = center ? area.Left + (area.Width - width) / 2 : Math.Max(area.Left, Math.Min(Left, area.Right - width));
+        int top = center ? area.Top + (area.Height - height) / 2 : Math.Max(area.Top, Math.Min(Top, area.Bottom - height));
+        SetBounds(left, top, width, height);
     }
     private string LaunchUrl() {
         var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(path));

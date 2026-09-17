@@ -1,5 +1,13 @@
 # AutoCodex 验证报告
 
+## 0.7.1 高 DPI 窗口修复（2026-09-17）
+
+- 复现原生窗口未感知 DPI：本机 150% 缩放下旧版以 96 DPI/DPR=1 绘制后被整体拉伸；修复版为 PerMonitorV2、144 DPI/DPR=1.5，网页输出与物理客户区等宽。
+- 实际显示器检查及 100%、125%、150%、200% WebView2 隔离渲染检查通过，包含原生子窗口位置、布局不溢出和关闭窗口保留后台。见 [DPI 报告](validation/window-dpi-report.json)。比例模拟不等于多显示器拖动实测。
+- 真实入口的打开、最小化后重复入口恢复通过；页面、工具栏和状态栏可见，子窗口位置正常。见 [恢复报告](validation/window-dpi-restore-report.json)。GUI 功能回归见 [窗口报告](validation/window-report.json)。
+- GUI 现要求 Windows 10/11 x64、.NET Framework 4.8+、WebView2 Runtime。源码入口检查旧缓存是否过期；发布包必须包含 DPI 配置。详细原因与实现见 [修复设计](19-window-dpi.md)。
+- 70 个模块/JSON 检查通过。0.7.1 ZIP 的 DPI 配置、中文空格路径搬迁启动、关闭和设置持久化通过，显示与 GUI 回归使用搬迁后 exe。见 [发布运行报告](validation/release-v071-runtime-report.json)；最终文件清单以包内 SHA256SUMS.json 为准。
+
 ## 0.7.0 监测与易用性（2026-09-17）
 
 - 新增真实事件回归：人工恢复/失败提交、旧回合迟到、重启恢复、不明结果保护、子代理嵌套/释放/排除/重新激活、等待批准暂停全树计时、短命子任务进展及旧协作结果去重。最终全量 178/178 项自动测试通过，69 个模块/JSON 检查通过。

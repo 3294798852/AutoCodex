@@ -1,5 +1,5 @@
 {
-  "testedAt": "2026-09-17T06:45:47.886Z",
+  "testedAt": "2026-09-17T08:36:41.318Z",
   "runtime": "Windows x64 native WinForms + WebView2",
   "checks": [
     "native window authenticates and renders the shared dashboard",

@@ -1,0 +1,518 @@
+{
+  "testedAt": "2026-09-17T08:36:30.179Z",
+  "executable": "C:\\My_Projects\\AutoCodex\\.work\\release 中文 空格-e3760afe-dbd8-416c-9fee-c9ddf1a45c46\\autocodex-guard\\runtime\\native\\AutoCodexWindow.exe",
+  "results": [
+    {
+      "label": "before",
+      "mode": "actual Windows monitor",
+      "native": {
+        "processId": 37040,
+        "awareness": 0,
+        "perMonitorV2": false,
+        "dpi": 96,
+        "monitorScalePercent": 150,
+        "width": 2040,
+        "height": 1380,
+        "left": 260,
+        "top": 0,
+        "clientWidth": 2016,
+        "clientHeight": 1321,
+        "insideWorkArea": false,
+        "workArea": {
+          "height": 1368,
+          "width": 2560
+        },
+        "children": [
+          {
+            "className": "WindowsForms10.Window.8.app.0.1a0e24_r6_ad1",
+            "left": 272,
+            "top": 84,
+            "width": 2016,
+            "height": 1251
+          },
+          {
+            "className": "Chrome_WidgetWin_0",
+            "left": 272,
+            "top": 84,
+            "width": 2016,
+            "height": 1251
+          },
+          {
+            "className": "Chrome_WidgetWin_1",
+            "left": 272,
+            "top": 84,
+            "width": 2016,
+            "height": 1251
+          },
+          {
+            "className": "Chrome_RenderWidgetHostHWND",
+            "left": 272,
+            "top": 84,
+            "width": 2016,
+            "height": 1251
+          },
+          {
+            "className": "Intermediate D3D Window",
+            "left": 272,
+            "top": 84,
+            "width": 2016,
+            "height": 1251
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.1a0e24_r6_ad1",
+            "left": 272,
+            "top": 47,
+            "width": 2016,
+            "height": 38
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.1a0e24_r6_ad1",
+            "left": 272,
+            "top": 1335,
+            "width": 2016,
+            "height": 33
+          }
+        ]
+      },
+      "web": {
+        "dpr": 1,
+        "width": 1344,
+        "height": 834,
+        "scrollWidth": 1338,
+        "viewportScale": 1
+      },
+      "pixels": {
+        "width": 1344,
+        "height": 834
+      },
+      "pageErrors": []
+    },
+    {
+      "label": "native",
+      "mode": "actual Windows monitor",
+      "native": {
+        "processId": 22396,
+        "awareness": 2,
+        "perMonitorV2": true,
+        "dpi": 144,
+        "monitorScalePercent": 150,
+        "width": 2029,
+        "height": 1352,
+        "left": 265,
+        "top": 8,
+        "clientWidth": 2007,
+        "clientHeight": 1296,
+        "insideWorkArea": true,
+        "workArea": {
+          "height": 1368,
+          "width": 2560
+        },
+        "children": [
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_0",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_RenderWidgetHostHWND",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Intermediate D3D Window",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 53,
+            "width": 2007,
+            "height": 38
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 1318,
+            "width": 2007,
+            "height": 31
+          }
+        ]
+      },
+      "web": {
+        "dpr": 1.5,
+        "width": 1338,
+        "height": 818,
+        "scrollWidth": 1332,
+        "viewportScale": 1
+      },
+      "pixels": {
+        "width": 2007,
+        "height": 1227
+      },
+      "pageErrors": []
+    },
+    {
+      "label": "100",
+      "mode": "WebView2 forced device scale; Windows display unchanged",
+      "native": {
+        "processId": 38044,
+        "awareness": 2,
+        "perMonitorV2": true,
+        "dpi": 144,
+        "monitorScalePercent": 150,
+        "width": 2029,
+        "height": 1352,
+        "left": 265,
+        "top": 8,
+        "clientWidth": 2007,
+        "clientHeight": 1296,
+        "insideWorkArea": true,
+        "workArea": {
+          "height": 1368,
+          "width": 2560
+        },
+        "children": [
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_0",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_RenderWidgetHostHWND",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Intermediate D3D Window",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 53,
+            "width": 2007,
+            "height": 38
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 1318,
+            "width": 2007,
+            "height": 31
+          }
+        ]
+      },
+      "web": {
+        "dpr": 1,
+        "width": 2007,
+        "height": 1227,
+        "scrollWidth": 2001,
+        "viewportScale": 1
+      },
+      "pixels": {
+        "width": 2007,
+        "height": 1227
+      },
+      "pageErrors": []
+    },
+    {
+      "label": "125",
+      "mode": "WebView2 forced device scale; Windows display unchanged",
+      "native": {
+        "processId": 45008,
+        "awareness": 2,
+        "perMonitorV2": true,
+        "dpi": 144,
+        "monitorScalePercent": 150,
+        "width": 2029,
+        "height": 1352,
+        "left": 265,
+        "top": 8,
+        "clientWidth": 2007,
+        "clientHeight": 1296,
+        "insideWorkArea": true,
+        "workArea": {
+          "height": 1368,
+          "width": 2560
+        },
+        "children": [
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_0",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_RenderWidgetHostHWND",
+            "left": 276,
+            "top": 91,
+            "width": 2008,
+            "height": 1228
+          },
+          {
+            "className": "Intermediate D3D Window",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 53,
+            "width": 2007,
+            "height": 38
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 1318,
+            "width": 2007,
+            "height": 31
+          }
+        ]
+      },
+      "web": {
+        "dpr": 1.25,
+        "width": 1606,
+        "height": 982,
+        "scrollWidth": 1601,
+        "viewportScale": 1
+      },
+      "pixels": {
+        "width": 2008,
+        "height": 1228
+      },
+      "pageErrors": []
+    },
+    {
+      "label": "150",
+      "mode": "WebView2 forced device scale; Windows display unchanged",
+      "native": {
+        "processId": 47596,
+        "awareness": 2,
+        "perMonitorV2": true,
+        "dpi": 144,
+        "monitorScalePercent": 150,
+        "width": 2029,
+        "height": 1352,
+        "left": 265,
+        "top": 8,
+        "clientWidth": 2007,
+        "clientHeight": 1296,
+        "insideWorkArea": true,
+        "workArea": {
+          "height": 1368,
+          "width": 2560
+        },
+        "children": [
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_0",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_RenderWidgetHostHWND",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Intermediate D3D Window",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 53,
+            "width": 2007,
+            "height": 38
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 1318,
+            "width": 2007,
+            "height": 31
+          }
+        ]
+      },
+      "web": {
+        "dpr": 1.5,
+        "width": 1338,
+        "height": 818,
+        "scrollWidth": 1332,
+        "viewportScale": 1
+      },
+      "pixels": {
+        "width": 2007,
+        "height": 1227
+      },
+      "pageErrors": []
+    },
+    {
+      "label": "200",
+      "mode": "WebView2 forced device scale; Windows display unchanged",
+      "native": {
+        "processId": 9596,
+        "awareness": 2,
+        "perMonitorV2": true,
+        "dpi": 144,
+        "monitorScalePercent": 150,
+        "width": 2029,
+        "height": 1352,
+        "left": 265,
+        "top": 8,
+        "clientWidth": 2007,
+        "clientHeight": 1296,
+        "insideWorkArea": true,
+        "workArea": {
+          "height": 1368,
+          "width": 2560
+        },
+        "children": [
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_0",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_WidgetWin_1",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "Chrome_RenderWidgetHostHWND",
+            "left": 276,
+            "top": 91,
+            "width": 2008,
+            "height": 1228
+          },
+          {
+            "className": "Intermediate D3D Window",
+            "left": 276,
+            "top": 91,
+            "width": 2007,
+            "height": 1227
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 53,
+            "width": 2007,
+            "height": 38
+          },
+          {
+            "className": "WindowsForms10.Window.8.app.0.329445b_r6_ad1",
+            "left": 276,
+            "top": 1318,
+            "width": 2007,
+            "height": 31
+          }
+        ]
+      },
+      "web": {
+        "dpr": 2,
+        "width": 1004,
+        "height": 614,
+        "scrollWidth": 998,
+        "viewportScale": 1
+      },
+      "pixels": {
+        "width": 2008,
+        "height": 1228
+      },
+      "pageErrors": []
+    }
+  ],
+  "paidModelRequests": 0,
+  "coverage": "Native awareness and monitor ratio plus four isolated WebView2 rendering scales; no OS settings changed. Cross-monitor dragging requires separate physical displays."
+}

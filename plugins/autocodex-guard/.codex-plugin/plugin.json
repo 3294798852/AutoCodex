@@ -1,6 +1,6 @@
 {
   "name": "autocodex-guard",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Local Codex task monitoring, recovery checkpoints, and conversation handoffs.",
   "author": {
     "name": "AutoCodex project"

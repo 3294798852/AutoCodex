@@ -1,6 +1,16 @@
 # AutoCodex 项目接续记录
 
-更新：2026-09-17；当前版本：0.7.0；本轮状态：P15 实现、回归、GUI/浏览器与发布搬迁验证完成。当前需求与方案见 docs/18-monitor-usability.md。
+更新：2026-09-17；当前版本：0.7.1；P16 高 DPI 显示修复与发布验证完成，需求与实现见 docs/19-window-dpi.md。
+
+## P16 独立窗口清晰度
+
+根因已实测：Windows 150% 缩放下 0.7.0 DPI-unaware，1344px 内容被拉伸为 2016px。已增加 Win10 兼容 manifest、.NET 4.8 PerMonitorV2 配置、入口优先 DPI 初始化、DPI 布局与工作区边界、源码旧 GUI 自动重建。新版本机 144 DPI/DPR=1.5，内容按物理像素渲染；原生控件边界核对和四档 WebView2 渲染验证通过。真正多显示器移动尚待不同 DPI 物理屏幕专项实测。
+
+真实入口打开、最小化后从同入口恢复以及 GUI 功能回归通过。图形工具自身 activate_window 恢复造成的子控件偏移已与程序恢复区分，未引入针对工具的补丁。验收报告 docs/validation/window-dpi-report.json、window-dpi-restore-report.json、window-report.json。此修复只需重开监测窗口，不需要退出 Codex、停止监测或更改 Windows 缩放。本机 .mcp.json 保留且不提交。
+
+70 个模块/JSON 检查通过，0.7.1 ZIP 已验证 DPI 配置、中文空格路径启动和设置保留，DPI 与 GUI 回归使用搬迁后发布程序。报告 docs/validation/release-v071-runtime-report.json，最终清单以包内 SHA256SUMS.json 为准。仅结束本轮创建的隔离 GUI/夹具，用户 Codex 与后台监测未重启。
+
+已有 0.7.0 后台在运行时，关闭旧窗口并双击新增 Open-AutoCodexWindow.cmd，仅重开 GUI；底部版本号在服务下次正常重启后更新。完整 Start-AutoCodex.cmd 仍有原有后台版本核对，避免建议用户为了 GUI 修复重启 Codex。
 
 ## P15 监测与易用性
 

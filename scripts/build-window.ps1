@@ -23,8 +23,9 @@ $core = Join-Path $unpacked 'lib\net462\Microsoft.Web.WebView2.Core.dll'
 $forms = Join-Path $unpacked 'lib\net462\Microsoft.Web.WebView2.WinForms.dll'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $destination = Join-Path $OutputDirectory 'AutoCodexWindow.exe'
-& $compiler /nologo /target:winexe /platform:x64 /optimize+ "/out:$destination" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "/r:$core" "/r:$forms" (Join-Path $projectDirectory 'src\native\MonitorWindow.cs')
+& $compiler /nologo /target:winexe /platform:x64 /optimize+ "/out:$destination" ('/win32manifest:' + (Join-Path $projectDirectory 'src\native\MonitorWindow.manifest')) /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll "/r:$core" "/r:$forms" (Join-Path $projectDirectory 'src\native\MonitorWindow.cs')
 if ($LASTEXITCODE -ne 0) { throw 'AutoCodex window build failed.' }
+Copy-Item -LiteralPath (Join-Path $projectDirectory 'src\native\MonitorWindow.config') -Destination ($destination + '.config') -Force
 Copy-Item -LiteralPath $core, $forms, (Join-Path $unpacked 'runtimes\win-x64\native\WebView2Loader.dll') -Destination $OutputDirectory -Force
 Copy-Item -LiteralPath (Join-Path $unpacked 'LICENSE.txt') -Destination (Join-Path $OutputDirectory 'WebView2-LICENSE.txt') -Force
 Write-Output $destination

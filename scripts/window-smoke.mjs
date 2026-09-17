@@ -10,7 +10,7 @@ import { fixture } from './usability-fixture.mjs';
 const require = createRequire(import.meta.url), { chromium } = require(process.env.AUTOCODEX_PLAYWRIGHT_MODULE || 'playwright');
 const f = await fixture(), listener = createServer();
 await new Promise(r => listener.listen(0, '127.0.0.1', r)); const port = listener.address().port; await new Promise(r => listener.close(r));
-const executable = resolve('.work/desktop-runtime/AutoCodexWindow.exe');
+const executable = resolve(process.env.AUTOCODEX_WINDOW_EXECUTABLE || '.work/desktop-runtime/AutoCodexWindow.exe');
 let child, browser;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 try {
@@ -31,7 +31,7 @@ try {
   const duplicate = spawn(executable, [f.address.connectionPath], { windowsHide: true, stdio: 'ignore' });
   const duplicateExit = await Promise.race([once(duplicate, 'exit'), wait(5000).then(() => { duplicate.kill(); throw new Error('duplicate window failed to reuse'); })]);
   assert.equal(duplicateExit[0], 0);
-  await page.screenshot({ path: 'docs/assets/window-v070.png', fullPage: true });
+  await page.screenshot({ path: 'docs/assets/window-v071.png', fullPage: true });
   await page.locator('[data-view="settings"]').click(); await page.locator('#dnd-commonCommands').check();
   await page.waitForFunction(() => !document.querySelector('#dnd-commonCommands').disabled);
   assert.equal(f.supervisor.dnd.commonCommands, true);

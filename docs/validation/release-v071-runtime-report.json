@@ -1,0 +1,17 @@
+{
+    "demoStartup":  "passed",
+    "version":  "0.7.1",
+    "shutdown":  "passed",
+    "filesVerified":  139,
+    "dndPersistence":  "passed",
+    "testedAt":  "2026-09-17T08:34:56.8647655Z",
+    "customDataDirectory":  "passed",
+    "machinePathsInMcpTemplate":  false,
+    "nativeWindowRuntime":  "passed",
+    "unicodeRelocation":  "passed",
+    "credentialsIncluded":  false,
+    "archiveBytes":  3549711,
+    "recycleEntryPackaged":  "passed",
+    "pluginReconfiguration":  "passed",
+    "dndDefaults":  "passed"
+}
